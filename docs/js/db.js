@@ -47,7 +47,9 @@ const DB = {
     const c = window.CONFIG || {};
     if (c.SUPABASE_URL && c.SUPABASE_ANON_KEY && window.supabase) {
       this.modo = "nube";
-      this.sb = window.supabase.createClient(c.SUPABASE_URL, c.SUPABASE_ANON_KEY);
+      let url = String(c.SUPABASE_URL).trim();
+      try { url = new URL(url).origin; } catch (e) {}
+      this.sb = window.supabase.createClient(url, String(c.SUPABASE_ANON_KEY).trim());
       const { data } = await this.sb.auth.getSession();
       this.usuario = data.session?.user || null;
     } else {
