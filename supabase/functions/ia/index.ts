@@ -66,6 +66,7 @@ const TOOL_COMPROBANTE = {
             tipo_producto: { type: "string", enum: TIPOS_PRODUCTO },
             principio_activo: { type: ["string", "null"] },
             concentracion: { type: ["string", "null"], description: "ej. 62% o 480 g/L" },
+            producto_id: { type: ["string", "null"], description: "id del insumo de la lista del usuario al que corresponde este renglón, aunque figure con otra marca o nombre comercial (mismo principio activo y concentración). null si no hay uno que corresponda con seguridad." },
           },
           required: ["descripcion", "cantidad", "unidad", "tipo_producto"],
         },
@@ -93,6 +94,7 @@ const TOOL_LABORES = {
           properties: {
             lote_id: { type: ["string", "null"], description: "id del lote de la lista; null si no se puede identificar" },
             sub_id: { type: ["string", "null"], description: "id del sector si se menciona uno" },
+            labor_tipo_id: { type: ["string", "null"], description: "id de la labor del catálogo que corresponde (ej. 'pulverizamos' → la pulverización terrestre si no se dice aérea); null si no está claro" },
             fecha: { type: "string", description: "YYYY-MM-DD. Interpretá 'ayer', 'el martes', etc. respecto de la fecha de hoy." },
             tipo: { type: "string", enum: TIPOS_LABOR },
             contratista_id: { type: ["string", "null"] },
@@ -157,7 +159,8 @@ Deno.serve(async (req) => {
         text: "Leé este comprobante de un proveedor de un establecimiento agropecuario de Argentina y registrá sus datos. " +
           "Si hay varias imágenes son páginas del mismo comprobante. Los precios unitarios van sin IVA. " +
           "Si un dato no se lee con seguridad, ponelo en null y mencionalo en observaciones. " +
-          (b.contexto?.proveedores?.length ? "Proveedores ya cargados (usá el mismo nombre si coincide): " + b.contexto.proveedores.join("; ") : ""),
+          (b.contexto?.proveedores?.length ? "Proveedores ya cargados (usá el mismo nombre si coincide): " + b.contexto.proveedores.join("; ") + ". " : "") +
+          (b.contexto?.productos?.length ? "Insumos de la lista del usuario (para producto_id; la cantidad va en la unidad de ese insumo): " + JSON.stringify(b.contexto.productos) : ""),
       });
       const j = await claude({
         max_tokens: 4096,
@@ -180,6 +183,7 @@ Deno.serve(async (req) => {
           "Las dosis de herbicidas se dicen en litros o cc por hectárea; las de fertilizantes y semillas en kilos por hectárea.\n" +
           "Fecha de hoy: " + b.hoy + ". Campaña actual: " + b.campana + ".\n" +
           "Lotes: " + JSON.stringify(b.contexto?.lotes ?? []) + "\n" +
+          "Catálogo de labores: " + JSON.stringify(b.contexto?.labores_catalogo ?? []) + "\n" +
           "Productos: " + JSON.stringify(b.contexto?.productos ?? []) + "\n" +
           "Contratistas: " + JSON.stringify(b.contexto?.contratistas ?? []),
         messages: [{ role: "user", content: String(b.texto ?? "").slice(0, 6000) }],

@@ -47,25 +47,36 @@ const Comprobantes = {
     if (DB.modo === "local") return;
     const fin = cargando("Leyendo el comprobante con IA" + sufijo + "…");
     try {
-      const r = await DB.ia("comprobante", { archivos: c.archivos, contexto: { proveedores: S.d.proveedores.slice(0, 200).map((p) => p.nombre + (p.cuit ? ` (${p.cuit})` : "")) } });
+      const r = await DB.ia("comprobante", { archivos: c.archivos, contexto: {
+        proveedores: S.d.proveedores.slice(0, 200).map((p) => p.nombre + (p.cuit ? ` (${p.cuit})` : "")),
+        productos: S.d.productos.slice(0, 400).map((p) => ({ id: p.id, nombre: p.nombre, tipo: p.tipo, principio_activo: p.principio_activo, concentracion: p.concentracion, unidad: p.unidad, otros_nombres: (p.alias || []).map((a) => a.texto ?? a).slice(0, 10) })),
+      } });
       const d = r.datos || {}; c.ia = d;
       c.tipo = d.tipo || c.tipo; c.letra = d.letra || null; c.numero = d.numero || null; c.fecha = d.fecha || null;
       c.moneda = d.moneda || "ARS"; c.tipo_cambio = d.tipo_cambio || null; c.total = d.total ?? null;
       c.proveedor_nombre = d.proveedor?.nombre || null; c.cuit = soloDig(d.proveedor?.cuit) || null;
       const pv = buscarProveedor(c.proveedor_nombre, c.cuit); c.proveedor_id = pv?.id || null;
       c.mueve_stock = c.tipo !== "nota_debito";
-      c.items = (d.items || []).map((it) => { const p = buscarProducto(it.descripcion); return { ...it, producto_id: p?.id || null, producto: p?.nombre || this.nombreSugerido(it) }; });
+      c.items = (d.items || []).map((it) => Comprobantes.asignar({ ...it, sugerido_id: it.producto_id || null, producto_id: null }));
       c.campana = campanaDeFecha(c.fecha);
       await guardar("comprobantes", c);
     } catch (e) { toast("No pude leerlo automáticamente: " + e.message + ". Completalo a mano.", 8000); }
     finally { fin(); }
   },
-  nombreSugerido(it) { return String(it.descripcion || "").replace(/\s+/g, " ").trim().slice(0, 60); },
+  /* Reconoce el insumo de un renglón: por nombre ya visto (seguro) o por sugerencia de la IA (a confirmar) */
+  asignar(it) {
+    const p = productoPorTexto(it.descripcion);
+    if (p) return { ...it, producto_id: p.id, producto: p.nombre, match: "conocido" };
+    const s = productoDe(it.sugerido_id);
+    if (s) return { ...it, producto_id: s.id, producto: s.nombre, match: "sugerido" };
+    return { ...it, producto_id: null, producto: null, match: null };
+  },
+  nombreSugerido(it) { return String(it.descripcion || "").replace(/\b(x\s*)?\d+([ .,]\d+)?\s*(l|lt|lts|litros|kg|kgs|cc)\b/gi, "").replace(/\s+/g, " ").trim().slice(0, 60); },
 
   async revisar(c) {
     const urls = []; for (const a of c.archivos || []) { try { urls.push({ ...a, url: await DB.url("comprobantes", a.path) }); } catch (e) {} }
-    const it0 = { descripcion: "", producto: "", producto_id: null, cantidad: null, unidad: "L", precio_unitario: null, alicuota_iva: null, tipo_producto: "herbicida" };
-    let items = (c.items || []).map((x) => ({ ...x }));
+    const it0 = { descripcion: "", producto_id: null, match: "manual", cantidad: null, unidad: "L", precio_unitario: null, alicuota_iva: null, tipo_producto: "herbicida" };
+    let items = (c.items || []).map((x) => (c.estado === "confirmado" || x.producto_id || x.ignorar ? { ...x } : Comprobantes.asignar(x)));
     const prov = proveedorDe(c.proveedor_id);
     modal(`<div class="row" style="justify-content:space-between"><h4>${c.estado === "confirmado" ? "Comprobante" : "Revisar comprobante"}</h4>${c.estado === "confirmado" ? '<span class="pill ok">Confirmado</span>' : '<span class="pill warn">Borrador</span>'}</div>
       ${c.ia?.observaciones ? `<div class="aviso"><b>Para revisar:</b> ${esc(c.ia.observaciones)}</div>` : ""}
@@ -80,81 +91,103 @@ const Comprobantes = {
           <div class="row"><div class="field grow"><label class="lbl" for="cProv">Proveedor</label><input id="cProv" list="dlProvs" value="${esc(prov?.nombre || c.proveedor_nombre || "")}"><datalist id="dlProvs">${S.d.proveedores.map((p) => `<option value="${esc(p.nombre)}">`).join("")}</datalist></div>
             <div class="field"><label class="lbl" for="cCuit">CUIT</label><input id="cCuit" value="${esc(prov?.cuit || c.cuit || "")}" inputmode="numeric" style="width:140px"></div></div>
           <div class="small" id="cProvEstado"></div>
-          <div class="row"><div class="field"><label class="lbl" for="cMon">Moneda</label><select id="cMon">${opciones([["ARS", "Pesos"], ["USD", "Dólares"]], c.moneda)}</select></div>
+          <div class="row" id="cPrecios"><div class="field"><label class="lbl" for="cMon">Moneda</label><select id="cMon">${opciones([["ARS", "Pesos"], ["USD", "Dólares"]], c.moneda)}</select></div>
             <div class="field"><label class="lbl" for="cTC">Tipo de cambio</label><input id="cTC" inputmode="decimal" value="${c.tipo_cambio ?? ""}" style="width:110px" placeholder="$ por US$"></div>
             <div class="field"><label class="lbl" for="cTot">Total con IVA</label><input id="cTot" inputmode="decimal" value="${c.total ?? ""}" style="width:130px"></div></div>
-          <div class="row" style="justify-content:space-between"><h2>Renglones</h2><button id="cAddIt" class="small">+ Renglón</button></div>
-          <div id="cItems" class="col" style="gap:6px"></div>
-          <label class="row small"><input type="checkbox" id="cStock" ${c.mueve_stock !== false ? "checked" : ""}> Ingresa mercadería al stock <span class="muted">(destildá si esta factura corresponde a un remito ya cargado)</span></label>
+          <div class="row" style="justify-content:space-between"><h2>¿Qué insumo es cada renglón?</h2><button id="cAddIt" class="small">+ Renglón</button></div>
+          <div id="cResumen" class="small"></div>
+          <div id="cItems" class="col" style="gap:8px"></div>
+          <label class="row small"><input type="checkbox" id="cStock" ${c.mueve_stock !== false ? "checked" : ""}> Ingresa mercadería al galpón <span class="muted">(destildá si es la factura de un remito ya cargado)</span></label>
           <div class="field"><label class="lbl" for="cNot">Notas</label><input id="cNot" value="${esc(c.notas || "")}"></div>
         </div>
       </div>
-      ${datalistProductos()}
       <div class="pie"><button class="ghost danger" id="cDel" style="margin-right:auto">Eliminar</button><button id="mNo">Cerrar</button>${c.estado === "confirmado" ? '<button class="primary" id="cOk">Guardar cambios</button>' : '<button id="cBorr">Guardar borrador</button><button class="primary" id="cOk">Confirmar</button>'}</div>`, (m, close) => {
       const $ = (q) => m.querySelector(q);
+      const chip = (it) => {
+        if (it.ignorar) return `<span class="pill mut">No va al galpón</span>`;
+        if (!it.producto_id) return `<span class="pill bad">¿A qué insumo pertenece?</span>`;
+        if (it.match === "conocido") return `<span class="pill ok">Reconocido</span>`;
+        if (it.match === "sugerido") return `<span class="pill warn">¿Es este insumo?</span> <button type="button" class="small primary" data-si>Sí, es este</button>`;
+        return `<span class="pill ok">Asignado</span>`;
+      };
+      const avisoUnidad = (it) => { const p = productoDe(it.producto_id); return p && !it.ignorar && it.unidad && it.unidad !== p.unidad ? `<div class="small" style="color:var(--warn)">${esc(p.nombre)} se mide en ${esc(p.unidad)}: pasá la cantidad a ${esc(p.unidad)}.</div>` : ""; };
+      const resumen = () => { const falta = items.filter((it) => !it.producto_id && !it.ignorar).length, dudas = items.filter((it) => it.match === "sugerido" && !it.ignorar).length; $("#cResumen").innerHTML = c.estado === "confirmado" ? "" : falta || dudas ? `<div class="aviso">${falta ? `${falta} renglón${falta > 1 ? "es" : ""} sin insumo asignado. ` : ""}${dudas ? `${dudas} con nombre distinto al de tu lista: confirmá si corresponde al insumo sugerido o elegí otro.` : ""} Lo que elijas queda guardado y la próxima vez se reconoce solo.</div>` : items.length ? `<span class="pill ok">Todos los renglones tienen insumo</span>` : ""; };
       const pintarItems = () => {
-        $("#cItems").innerHTML = items.length ? `<div class="it-row small muted hide-m"><span>Descripción en el comprobante</span><span>Producto</span><span>Cantidad</span><span>Unidad</span><span>Precio unit. s/IVA</span><span></span></div>` + items.map((it, i) => {
-          const nuevo = !!it.producto && !buscarProducto(it.producto);
-          return `<div class="it-row" data-i="${i}"><input class="full" data-k="descripcion" value="${esc(it.descripcion || "")}" placeholder="Descripción">
-            <div class="col full" style="gap:2px"><input data-k="producto" list="dlProd" value="${esc(it.producto || "")}" placeholder="Producto"><span class="small nuevo" ${nuevo ? "" : "hidden"}><span class="pill mut">producto nuevo</span> <select data-k="tipo_producto" class="small" style="padding:2px" aria-label="Tipo de producto">${opciones(TIPOS_PRODUCTO, it.tipo_producto || "otro")}</select></span></div>
-            <input data-k="cantidad" inputmode="decimal" value="${it.cantidad ?? ""}" placeholder="Cant.">
-            <select data-k="unidad">${opciones(["L", "kg", "u", "ha", "otro"], it.unidad || "L")}</select>
-            <input data-k="precio_unitario" inputmode="decimal" value="${it.precio_unitario ?? ""}" placeholder="${c.tipo === "remito" ? "—" : "Precio"}">
-            <button class="ghost small danger" data-del="${i}" title="Quitar renglón">✕</button></div>`;
-        }).join("") : `<div class="empty">Sin renglones. Agregá los productos del comprobante.</div>`;
+        $("#cItems").innerHTML = items.length ? items.map((it, i) => `<div class="card" style="padding:10px;gap:6px" data-i="${i}">
+            <div class="row" style="justify-content:space-between;align-items:flex-start"><div class="grow"><span class="lbl">En el comprobante dice</span><input data-k="descripcion" value="${esc(it.descripcion || "")}" placeholder="Descripción" style="width:100%"></div><button class="ghost small danger" data-del="${i}" title="Quitar renglón">✕</button></div>
+            <div class="row"><div class="field grow" style="min-width:200px"><label class="lbl">Insumo de tu lista</label><select data-k="producto_id" aria-label="Insumo">${opcionesProductos(it.ignorar ? "" : it.producto_id).replace('<option value="__nuevo">', `<option value="__ignorar" ${it.ignorar ? "selected" : ""}>No va al galpón (flete, servicio, otro)</option><option value="__nuevo">`)}</select></div><div style="align-self:flex-end;padding-bottom:4px">${chip(it)}</div></div>
+            <div class="row"><div class="field"><label class="lbl">Cantidad</label><input data-k="cantidad" inputmode="decimal" value="${it.cantidad ?? ""}" style="width:100px"></div>
+              <div class="field"><label class="lbl">Unidad</label><select data-k="unidad">${opciones(["L", "kg", "u", "ha", "otro"], it.unidad || "L")}</select></div>
+              <div class="field"><label class="lbl">Precio unit. sin IVA</label><input data-k="precio_unitario" inputmode="decimal" value="${it.precio_unitario ?? ""}" placeholder="${c.tipo === "remito" ? "sin precio" : ""}" style="width:120px"></div></div>
+            ${avisoUnidad(it)}</div>`).join("") : `<div class="empty">Sin renglones. Agregá los insumos del comprobante.</div>`;
         $("#cItems").querySelectorAll("[data-i]").forEach((row) => {
-          const i = +row.dataset.i;
-          row.querySelectorAll("[data-k]").forEach((inp) => (inp.onchange = () => {
-            const k = inp.dataset.k; let v = inp.value;
-            if (k === "cantidad" || k === "precio_unitario") v = num(v);
-            items[i][k] = v;
-            if (k === "producto") { const p = buscarProducto(v); items[i].producto_id = p?.id || null; if (p) { items[i].unidad = p.unidad || items[i].unidad; row.querySelector("[data-k=unidad]").value = items[i].unidad; } const ch = row.querySelector(".nuevo"); if (ch) ch.hidden = !!p || !v; }
-          }));
+          const i = +row.dataset.i; const it = items[i];
+          row.querySelectorAll("input[data-k],select[data-k=unidad]").forEach((inp) => (inp.onchange = () => { const k = inp.dataset.k; it[k] = k === "cantidad" || k === "precio_unitario" ? num(inp.value) : inp.value; if (k === "unidad") pintarItems(); }));
+          row.querySelector("select[data-k=producto_id]").onchange = (e) => {
+            const v = e.target.value;
+            if (v === "__nuevo") {
+              e.target.value = it.producto_id || "";
+              Insumos.formProducto(null, (p) => { it.producto_id = p.id; it.producto = p.nombre; it.match = "nuevo"; it.ignorar = false; it.unidad = p.unidad; pintarItems(); }, { nombre: Comprobantes.nombreSugerido(it), tipo: it.tipo_producto || "herbicida", principio_activo: it.principio_activo || null, concentracion: it.concentracion || null, unidad: ["L", "kg", "u"].includes(it.unidad) ? it.unidad : "L" });
+              return;
+            }
+            if (v === "__ignorar") { it.ignorar = true; it.producto_id = null; it.producto = null; it.match = "manual"; }
+            else { const p = productoDe(v); it.ignorar = false; it.producto_id = p?.id || null; it.producto = p?.nombre || null; it.match = p ? "manual" : null; }
+            pintarItems();
+          };
+          const si = row.querySelector("[data-si]"); if (si) si.onclick = () => { it.match = "manual"; pintarItems(); };
         });
         $("#cItems").querySelectorAll("[data-del]").forEach((b) => (b.onclick = () => { items.splice(+b.dataset.del, 1); pintarItems(); }));
+        resumen();
       };
-      const estadoProv = () => { const p = buscarProveedor($("#cProv").value, $("#cCuit").value); $("#cProvEstado").innerHTML = !$("#cProv").value.trim() ? "" : p ? `<span class="pill ok">Proveedor existente</span> ${esc(p.nombre)}` : `<span class="pill mut">Proveedor nuevo</span> se agrega al confirmar`; };
+      const estadoProv = () => { const p = buscarProveedor($("#cProv").value, $("#cCuit").value); $("#cProvEstado").innerHTML = !$("#cProv").value.trim() ? "" : p ? `<span class="pill ok">Proveedor conocido</span> ${esc(p.nombre)}` : `<span class="pill mut">Proveedor nuevo</span> se agrega al confirmar`; };
       pintarItems(); estadoProv();
       $("#cProv").oninput = estadoProv; $("#cCuit").oninput = estadoProv;
       $("#cProv").onchange = () => { const p = buscarProveedor($("#cProv").value); if (p?.cuit && !$("#cCuit").value) $("#cCuit").value = p.cuit; estadoProv(); };
       $("#cAddIt").onclick = () => { items.push({ ...it0 }); pintarItems(); };
       $("#mNo").onclick = close;
       $("#cDel").onclick = async () => {
-        if (!(await confirmar("¿Eliminar este comprobante y sus imágenes?"))) return;
+        if (!(await confirmar("¿Eliminar este comprobante y sus imágenes? Si era un remito confirmado, sus cantidades salen del stock."))) return;
         for (const a of c.archivos || []) await DB.borrarArchivo("comprobantes", a.path).catch(() => {});
         await borrar("comprobantes", c.id); close(); refrescar(); toast("Comprobante eliminado");
       };
       const juntar = () => {
-        m.querySelectorAll("#cItems [data-i]").forEach((row) => {
-          const i = +row.dataset.i;
-          row.querySelectorAll("[data-k]").forEach((inp) => { const k = inp.dataset.k; items[i][k] = k === "cantidad" || k === "precio_unitario" ? num(inp.value) : inp.value; });
-          const p = buscarProducto(items[i].producto); items[i].producto_id = p?.id || null;
-        });
+        m.querySelectorAll("#cItems [data-i]").forEach((row) => { const it = items[+row.dataset.i]; row.querySelectorAll("input[data-k],select[data-k=unidad]").forEach((inp) => { const k = inp.dataset.k; it[k] = k === "cantidad" || k === "precio_unitario" ? num(inp.value) : inp.value; }); });
         Object.assign(c, { tipo: $("#cTipo").value, letra: $("#cLetra").value.trim().toUpperCase() || null, numero: $("#cNum").value.trim() || null, fecha: $("#cFecha").value || null, proveedor_nombre: $("#cProv").value.trim() || null, cuit: soloDig($("#cCuit").value) || null, moneda: $("#cMon").value, tipo_cambio: num($("#cTC").value), total: num($("#cTot").value), mueve_stock: $("#cStock").checked, notas: $("#cNot").value.trim() || null });
         c.campana = campanaDeFecha(c.fecha);
-        c.items = items.filter((it) => it.descripcion || it.producto).map((it) => ({ ...it, subtotal: it.cantidad != null && it.precio_unitario != null ? +(it.cantidad * it.precio_unitario).toFixed(2) : it.subtotal ?? null }));
+        c.items = items.filter((it) => it.descripcion || it.producto_id).map((it) => ({ ...it, subtotal: it.cantidad != null && it.precio_unitario != null ? +(it.cantidad * it.precio_unitario).toFixed(2) : it.subtotal ?? null }));
       };
       if ($("#cBorr")) $("#cBorr").onclick = async () => { juntar(); try { await guardar("comprobantes", c); close(); refrescar(); toast("Borrador guardado"); } catch (e) { toast(e.message, 6000); } };
       $("#cOk").onclick = async () => {
         juntar();
         if (!c.proveedor_nombre) { toast("Falta el proveedor."); $("#cProv").focus(); return; }
         if (!c.items.length) { toast("Agregá al menos un renglón."); return; }
-        if (c.items.some((it) => !it.producto)) { toast("Cada renglón tiene que tener un producto."); return; }
+        const sinAsignar = c.items.filter((it) => !it.producto_id && !it.ignorar);
+        if (sinAsignar.length) { toast(`Elegí a qué insumo pertenece «${sinAsignar[0].descripcion}», o marcalo como que no va al galpón.`, 7000); return; }
+        const dudas = c.items.filter((it) => it.match === "sugerido");
+        if (dudas.length && !(await confirmar(`${dudas.length === 1 ? "Un renglón tiene" : dudas.length + " renglones tienen"} el insumo sugerido sin confirmar:<br>${dudas.map((it) => `«${esc(it.descripcion)}» → <b>${esc(productoDe(it.producto_id)?.nombre)}</b>`).join("<br>")}<br><br>¿Son correctos?`, "Sí, confirmar"))) return;
+        const malUnidad = c.items.filter((it) => { const p = productoDe(it.producto_id); return p && it.unidad !== p.unidad; });
+        if (malUnidad.length && !(await confirmar(`Hay renglones en otra unidad que la del insumo (por ejemplo «${esc(malUnidad[0].descripcion)}» en ${esc(malUnidad[0].unidad)}). El stock se suma tal cual. ¿Confirmar igual?`, "Confirmar igual"))) return;
         if (c.moneda === "ARS" && c.tipo !== "remito" && !c.tipo_cambio && c.items.some((it) => it.precio_unitario)) {
-          if (!(await confirmar("No cargaste tipo de cambio. Sin él, los precios en pesos de este comprobante no entran en el costo en dólares de las labores. ¿Confirmar igual?", "Confirmar igual"))) return;
+          if (!(await confirmar("No cargaste tipo de cambio. Sin él, los precios en pesos de este comprobante no se usan como precio del insumo en dólares. ¿Confirmar igual?", "Confirmar igual"))) return;
         }
         const fin = cargando("Guardando…");
         try {
           let p = buscarProveedor(c.proveedor_nombre, c.cuit);
-          if (!p) p = await guardar("proveedores", { id: uid(), nombre: c.proveedor_nombre, cuit: c.cuit, tipo: c.items.every((it) => it.tipo_producto === "servicio") ? "contratista" : "proveedor" });
+          if (!p) p = await guardar("proveedores", { id: uid(), nombre: c.proveedor_nombre, cuit: c.cuit, tipo: "proveedor" });
           else if (c.cuit && !p.cuit) { p.cuit = c.cuit; await guardar("proveedores", p); }
           c.proveedor_id = p.id; c.proveedor_nombre = p.nombre;
+          /* Recordar cómo figura cada insumo en los comprobantes de este proveedor */
+          const cambiados = new Map();
           for (const it of c.items) {
-            const pr = await asegurarProducto(it.producto, { tipo: it.tipo_producto, principio_activo: it.principio_activo, concentracion: it.concentracion, unidad: ["L", "kg", "u"].includes(it.unidad) ? it.unidad : "u" });
-            it.producto_id = pr.id; it.producto = pr.nombre;
+            if (!it.producto_id) continue;
+            const pr = productoDe(it.producto_id); it.producto = pr.nombre; it.match = it.match === "sugerido" ? "manual" : it.match;
+            const k = claveInsumo(it.descripcion);
+            if (k && k !== claveInsumo(pr.nombre) && !(pr.alias || []).some((a) => claveInsumo(a.texto ?? a) === k)) { pr.alias = [...(pr.alias || []), { texto: String(it.descripcion).trim(), proveedor_id: p.id }]; cambiados.set(pr.id, pr); }
           }
+          for (const pr of cambiados.values()) await guardar("productos", pr);
           c.estado = "confirmado";
-          await guardar("comprobantes", c); close(); refrescar(); toast("Comprobante confirmado");
+          await guardar("comprobantes", c); close(); refrescar();
+          toast(c.mueve_stock ? `Confirmado: ${c.items.filter((it) => it.producto_id).length} insumo(s) ingresados al galpón` : "Comprobante confirmado");
         } catch (e) { toast(e.message, 7000); } finally { fin(); }
       };
     }, "ancho");
@@ -167,11 +200,11 @@ document.getElementById("fDoc").onchange = (e) => { const f = [...e.target.files
 Vistas.comprobantes = function () {
   const el = document.getElementById("v-comprobantes");
   const f = S.filtroComp || (S.filtroComp = { estado: "", prov: "", tipo: "", todas: false });
-  const lista = S.d.comprobantes.filter((c) => (f.todas || !c.campana || c.campana === S.campana || c.estado === "borrador") && (!f.estado || c.estado === f.estado) && (!f.prov || c.proveedor_id === f.prov) && (!f.tipo || c.tipo === f.tipo))
+  const lista = S.d.comprobantes.filter((c) => c.tipo !== "ajuste" && (f.todas || !c.campana || c.campana === S.campana || c.estado === "borrador") && (!f.estado || c.estado === f.estado) && (!f.prov || c.proveedor_id === f.prov) && (!f.tipo || c.tipo === f.tipo))
     .sort((a, b) => (a.estado === "borrador" ? 0 : 1) - (b.estado === "borrador" ? 0 : 1) || (b.fecha || b.creado || "").localeCompare(a.fecha || a.creado || ""));
-  const pend = S.d.comprobantes.filter((c) => c.estado === "borrador").length;
+  const pend = S.d.comprobantes.filter((c) => c.estado === "borrador" && c.tipo !== "ajuste").length;
   let totUSD = 0, sinTC = 0;
-  for (const c of S.d.comprobantes) if (c.estado === "confirmado" && c.campana === S.campana && c.tipo !== "remito") { const neto = (c.items || []).reduce((a, it) => a + (it.subtotal || 0), 0) * (c.tipo === "nota_credito" ? -1 : 1); const u = aUSD(neto, c.moneda, c.tipo_cambio); if (u == null) { if (neto) sinTC++; } else totUSD += u; }
+  for (const c of S.d.comprobantes) if (c.estado === "confirmado" && c.campana === S.campana && c.tipo !== "remito" && c.tipo !== "ajuste") { const neto = (c.items || []).reduce((a, it) => a + (it.subtotal || 0), 0) * (c.tipo === "nota_credito" ? -1 : 1); const u = aUSD(neto, c.moneda, c.tipo_cambio); if (u == null) { if (neto) sinTC++; } else totUSD += u; }
   el.innerHTML = `<div class="page-in">
     <div class="page-head"><h1>Comprobantes</h1><div class="row"><button class="primary" id="bFoto">📷 Sacar foto</button><button id="bPdf">Subir PDF o imagen</button><button id="bMan">Cargar a mano</button></div></div>
     <div class="kpis"><div class="kpi ${pend ? "alerta" : ""}"><span>Para revisar</span><b>${pend}</b></div><div class="kpi"><span>Compras netas ${esc(S.campana)}</span><b>${fmtM(totUSD, "USD")}</b>${sinTC ? `<div class="small muted">${sinTC} en pesos sin tipo de cambio</div>` : ""}</div></div>
@@ -180,7 +213,7 @@ Vistas.comprobantes = function () {
       <div class="field grow"><label class="lbl" for="fP">Proveedor</label><select id="fP"><option value="">Todos</option>${opciones(S.d.proveedores.filter((p) => p.tipo !== "contratista").sort((a, b) => a.nombre.localeCompare(b.nombre)).map((p) => [p.id, p.nombre]), f.prov)}</select></div>
       <label class="row small"><input type="checkbox" id="fTodas" ${f.todas ? "checked" : ""}> Todas las campañas</label></div>
     ${lista.length ? `<div class="card" style="padding:0"><div class="tablewrap"><table class="t"><tr><th>Fecha</th><th>Comprobante</th><th>Proveedor</th><th class="hide-m">Productos</th><th class="right">Total</th><th>Estado</th></tr>
-      ${lista.map((c) => `<tr class="click" data-c="${c.id}"><td class="num">${fechaAR(c.fecha)}</td><td>${esc(nombreTipoComp(c.tipo))} ${esc(c.letra || "")}<div class="small muted num">${esc(c.numero || "")}</div></td><td>${esc(proveedorDe(c.proveedor_id)?.nombre || c.proveedor_nombre || "—")}</td><td class="small hide-m">${(c.items || []).slice(0, 3).map((i) => esc(i.producto || i.descripcion)).join(", ")}${(c.items || []).length > 3 ? "…" : ""}</td><td class="num right">${c.total != null ? fmtM(c.total, c.moneda, 2) : "—"}</td><td>${c.estado === "confirmado" ? '<span class="pill ok">Confirmado</span>' : '<span class="pill warn">Revisar</span>'}</td></tr>`).join("")}</table></div></div>`
+      ${lista.map((c) => `<tr class="click" data-c="${c.id}"><td class="num">${fechaAR(c.fecha)}</td><td>${esc(nombreTipoComp(c.tipo))} ${esc(c.letra || "")}<div class="small muted num">${esc(c.numero || "")}</div></td><td>${esc(proveedorDe(c.proveedor_id)?.nombre || c.proveedor_nombre || "—")}</td><td class="small hide-m">${(c.items || []).filter((i) => !i.ignorar).slice(0, 3).map((i) => esc(productoDe(i.producto_id)?.nombre || i.descripcion)).join(", ")}${(c.items || []).length > 3 ? "…" : ""}</td><td class="num right">${c.total != null ? fmtM(c.total, c.moneda, 2) : "—"}</td><td>${c.estado === "confirmado" ? '<span class="pill ok">Confirmado</span>' : '<span class="pill warn">Revisar</span>'}</td></tr>`).join("")}</table></div></div>`
       : `<div class="empty">No hay comprobantes${f.estado || f.prov || f.tipo ? " con ese filtro" : " en esta campaña"}. Sacá una foto de una factura o remito, o subí el PDF de una factura electrónica: se leen el proveedor, los productos, las cantidades y los precios, y vos lo revisás antes de confirmar.</div>`}
   </div>`;
   const $ = (q) => el.querySelector(q);

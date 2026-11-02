@@ -5,10 +5,11 @@ const TABLAS = {
   siembras: ["id", "lote_id", "sub_id", "campana", "cultivo", "hibrido", "fecha", "notas", "creado"],
   rindes: ["id", "lote_id", "campana", "cultivo", "campo", "unidad", "archivo", "n", "stats", "path", "creado"],
   proveedores: ["id", "nombre", "cuit", "tipo", "telefono", "notas", "creado"],
-  productos: ["id", "nombre", "tipo", "principio_activo", "concentracion", "unidad", "notas", "creado"],
+  productos: ["id", "nombre", "tipo", "principio_activo", "concentracion", "unidad", "alias", "precio", "moneda", "notas", "creado"],
+  labores_tipo: ["id", "nombre", "categoria", "precios", "insumos", "activo", "notas", "creado"],
   comprobantes: ["id", "tipo", "letra", "numero", "fecha", "proveedor_id", "proveedor_nombre", "cuit", "moneda", "tipo_cambio", "total", "items", "mueve_stock", "archivos", "estado", "origen", "ia", "notas", "campana", "creado", "creado_por"],
-  ordenes: ["id", "numero", "lote_id", "sub_id", "campana", "tipo", "contratista_id", "contratista", "fecha_emision", "fecha_prevista", "superficie_ha", "insumos", "indicaciones", "estado", "labor_id", "creado", "creado_por"],
-  labores: ["id", "lote_id", "sub_id", "campana", "fecha", "tipo", "contratista_id", "contratista", "superficie_ha", "costo_ha", "moneda", "costo_estado", "insumos", "condiciones", "orden_id", "origen", "notas", "creado", "creado_por"],
+  ordenes: ["id", "numero", "labor_tipo_id", "lote_id", "sub_id", "campana", "tipo", "contratista_id", "contratista", "fecha_emision", "fecha_prevista", "superficie_ha", "insumos", "indicaciones", "estado", "labor_id", "creado", "creado_por"],
+  labores: ["id", "lote_id", "sub_id", "campana", "fecha", "labor_tipo_id", "tipo", "contratista_id", "contratista", "superficie_ha", "costo_ha", "moneda", "costo_estado", "insumos", "condiciones", "orden_id", "origen", "notas", "creado", "creado_por"],
 };
 const nuevoId = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
 
@@ -24,11 +25,12 @@ const Local = {
   abrir() {
     return new Promise((res) => {
       try {
-        const r = indexedDB.open("campo-flores-chicas-app", 1);
+        const r = indexedDB.open("campo-flores-chicas-app", 2);
         r.onupgradeneeded = () => {
-          for (const t of Object.keys(TABLAS)) r.result.createObjectStore(t, { keyPath: "id" });
-          r.result.createObjectStore("archivos");
-          r.result.createObjectStore("kv");
+          const db = r.result, hay = (n) => db.objectStoreNames.contains(n);
+          for (const t of Object.keys(TABLAS)) if (!hay(t)) db.createObjectStore(t, { keyPath: "id" });
+          if (!hay("archivos")) db.createObjectStore("archivos");
+          if (!hay("kv")) db.createObjectStore("kv");
         };
         r.onsuccess = () => { this.db = r.result; res(); };
         r.onerror = () => res();
@@ -56,6 +58,12 @@ const DB = {
       await Local.abrir();
       this.usuario = { email: "modo prueba" };
     }
+  },
+  /* Devuelve false si falta correr la actualización de la base (migracion_02.sql) */
+  async esquemaAlDia() {
+    if (this.modo !== "nube") return true;
+    const r = await Promise.all([this.sb.from("labores_tipo").select("id").limit(1), this.sb.from("productos").select("alias").limit(1), this.sb.from("labores").select("labor_tipo_id").limit(1)]);
+    return r.every((x) => !x.error);
   },
   async entrar(email, clave) {
     const { data, error } = await this.sb.auth.signInWithPassword({ email, password: clave });

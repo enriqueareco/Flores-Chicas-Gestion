@@ -53,11 +53,26 @@ create table if not exists productos (
   principio_activo text,
   concentracion text,
   unidad text default 'L',                 -- L | kg | u
+  alias jsonb not null default '[]',       -- nombres alternativos [{texto, proveedor_id}]
+  precio numeric,                          -- precio de referencia por unidad
+  moneda text default 'USD',
   notas text,
   creado timestamptz default now()
 );
 
--- ---------- Comprobantes (facturas, remitos) ----------
+-- ---------- Catálogo de labores ----------
+create table if not exists labores_tipo (
+  id text primary key default gen_random_uuid()::text,
+  nombre text not null,
+  categoria text,
+  precios jsonb not null default '[]',     -- [{desde, precio, moneda}]
+  insumos jsonb not null default '[]',
+  activo boolean default true,
+  notas text,
+  creado timestamptz default now()
+);
+
+-- ---------- Comprobantes (facturas, remitos, ajustes de stock) ----------
 create table if not exists comprobantes (
   id text primary key default gen_random_uuid()::text,
   tipo text default 'factura',             -- factura | remito | nota_credito | nota_debito | otro
@@ -86,6 +101,7 @@ create table if not exists comprobantes (
 create table if not exists ordenes (
   id text primary key default gen_random_uuid()::text,
   numero integer,
+  labor_tipo_id text references labores_tipo(id) on delete set null,
   lote_id text references lotes(id) on delete set null,
   sub_id text,
   campana text,
@@ -109,13 +125,14 @@ create table if not exists labores (
   sub_id text,
   campana text,
   fecha date,
+  labor_tipo_id text references labores_tipo(id) on delete set null,
   tipo text,
   contratista_id text references proveedores(id) on delete set null,
   contratista text,
   superficie_ha numeric,
   costo_ha numeric,
   moneda text default 'USD',
-  costo_estado text default 'a_definir',   -- a_definir | acordado
+  costo_estado text default 'a_definir',   -- catalogo | acordado | a_definir
   insumos jsonb not null default '[]',     -- [{producto_id, nombre, dosis, unidad, cantidad}]
   condiciones jsonb not null default '{}', -- viento, temperatura, humedad, caudal, receta, ing. agrónomo, aplicador
   orden_id text references ordenes(id) on delete set null,
@@ -133,7 +150,7 @@ create index if not exists ordenes_estado on ordenes(estado);
 do $$
 declare t text;
 begin
-  foreach t in array array['lotes','siembras','rindes','proveedores','productos','comprobantes','ordenes','labores'] loop
+  foreach t in array array['lotes','siembras','rindes','proveedores','productos','labores_tipo','comprobantes','ordenes','labores'] loop
     execute format('alter table %I enable row level security', t);
     execute format('drop policy if exists "usuarios del campo" on %I', t);
     execute format('create policy "usuarios del campo" on %I for all to authenticated using (true) with check (true)', t);

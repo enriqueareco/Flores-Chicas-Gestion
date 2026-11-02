@@ -6,14 +6,24 @@ const CULTIVOS = {
   "Ryegrass": "#3FA7C9", "Promoción de ryegrass": "#8FCFE0", "Campo natural": "#7D8F4E", "Barbecho": "#9C8B7A", "Otro": "#8E7CC3",
 };
 const SIN = "#7C8794";
-const TIPOS_LABOR = ["Siembra", "Pulverización", "Fertilización", "Cosecha", "Labranza", "Rolo", "Picado", "Enfardado", "Desmalezado", "Otra"];
+/* Categorías de labor: agrupan el catálogo y deciden qué datos se piden (las pulverizaciones llevan condiciones de aplicación) */
+const TIPOS_LABOR = ["Siembra", "Pulverización", "Fertilización", "Cosecha", "Labranza", "Rolo", "Picado", "Enfardado", "Embolsado", "Desmalezado", "Flete", "Otra"];
+const CATALOGO_INICIAL = [
+  ["Pulverización terrestre", "Pulverización"], ["Pulverización aérea", "Pulverización"],
+  ["Siembra directa grano grueso", "Siembra"], ["Siembra directa grano fino", "Siembra"], ["Siembra de pasturas y verdeos", "Siembra"],
+  ["Fertilización al voleo", "Fertilización"], ["Fertilización incorporada", "Fertilización"],
+  ["Cosecha grano grueso", "Cosecha"], ["Cosecha grano fino", "Cosecha"],
+  ["Rastra de discos", "Labranza"], ["Disco doble acción", "Labranza"], ["Cincel / descompactador", "Labranza"], ["Rastra de dientes", "Labranza"],
+  ["Rolo", "Rolo"], ["Picado de forraje", "Picado"], ["Rollos", "Enfardado"], ["Embolsado de grano", "Embolsado"], ["Desmalezadora", "Desmalezado"],
+];
 const TIPOS_CON_INSUMOS = new Set(["Siembra", "Pulverización", "Fertilización"]);
 const TIPOS_PRODUCTO = ["herbicida", "insecticida", "fungicida", "fertilizante", "semilla", "coadyuvante", "combustible", "servicio", "otro"];
 const UNIDADES_DOSIS = ["L/ha", "cc/ha", "kg/ha", "g/ha", "u/ha"];
 
 const S = {
   campana: campanaActual(),
-  d: { lotes: [], siembras: [], rindes: [], proveedores: [], productos: [], comprobantes: [], ordenes: [], labores: [] },
+  d: { lotes: [], siembras: [], rindes: [], proveedores: [], productos: [], labores_tipo: [], comprobantes: [], ordenes: [], labores: [] },
+  esquemaOk: true,
   vista: null,
 };
 
@@ -52,35 +62,96 @@ function textoCultivos(l, subId) { return [...new Set(cultivosDe(l, subId).map((
 function dosisABase(dosis, unidad) { const d = Number(dosis) || 0; switch (unidad) { case "cc/ha": return [d / 1000, "L"]; case "g/ha": return [d / 1000, "kg"]; case "kg/ha": return [d, "kg"]; case "u/ha": return [d, "u"]; default: return [d, "L"]; } }
 function cantidadInsumo(ins, ha) { const [b, u] = dosisABase(ins.dosis, ins.unidad); return { cant: b * (Number(ha) || 0), unidad: u }; }
 function aUSD(monto, moneda, tc) { if (monto == null) return null; if (moneda === "USD") return monto; return tc ? monto / tc : null; }
-/* Precio promedio ponderado en USD por unidad base, a partir de comprobantes confirmados con precio */
-function preciosProductos() {
-  const acc = {};
-  for (const c of S.d.comprobantes) {
-    if (c.estado !== "confirmado" || c.tipo === "remito") continue;
-    const sg = c.tipo === "nota_credito" ? -1 : 1;
-    for (const it of c.items || []) {
-      if (!it.producto_id || !it.precio_unitario || !it.cantidad) continue;
-      const pu = aUSD(Number(it.precio_unitario), c.moneda, Number(c.tipo_cambio));
-      if (pu == null) continue;
-      const a = (acc[it.producto_id] ??= { m: 0, q: 0 });
-      a.m += sg * pu * it.cantidad; a.q += sg * it.cantidad;
-    }
+/* Precio vigente de cada insumo en US$ por unidad: el de la última factura confirmada (por fecha); si no hay, el precio de referencia cargado a mano */
+function preciosDetalle() {
+  const out = {};
+  const comps = S.d.comprobantes.filter((c) => c.estado === "confirmado" && (c.tipo === "factura" || c.tipo === "nota_debito" || c.tipo === "otro")).sort((a, b) => (a.fecha || "").localeCompare(b.fecha || "") || (a.creado || "").localeCompare(b.creado || ""));
+  for (const c of comps) for (const it of c.items || []) {
+    if (!it.producto_id || !it.precio_unitario) continue;
+    const pu = aUSD(Number(it.precio_unitario), c.moneda, Number(c.tipo_cambio));
+    if (pu != null) out[it.producto_id] = { usd: pu, fecha: c.fecha, origen: `${nombreTipoCompCorto(c.tipo)} ${c.numero || ""} · ${c.proveedor_nombre || ""}`.trim() };
   }
-  const out = {}; for (const [k, a] of Object.entries(acc)) if (a.q > 0) out[k] = a.m / a.q;
+  for (const p of S.d.productos) if (!out[p.id] && p.precio != null && (p.moneda || "USD") === "USD") out[p.id] = { usd: Number(p.precio), fecha: null, origen: "precio de referencia" };
   return out;
 }
+function preciosProductos() { const d = preciosDetalle(); const o = {}; for (const k in d) o[k] = d[k].usd; return o; }
+const nombreTipoCompCorto = (t) => ({ factura: "Factura", remito: "Remito", nota_credito: "N. crédito", nota_debito: "N. débito", ajuste: "Ajuste" }[t] || "Comprob.");
+/* Stock del galpón: entra por remitos/facturas confirmados (y ajustes de inventario), sale por labores realizadas */
 function stockProductos() {
   const st = {};
+  const a = (id) => (st[id] ??= { entra: 0, sale: 0, ordenes: 0 });
   for (const c of S.d.comprobantes) {
     if (c.estado !== "confirmado" || !c.mueve_stock) continue;
     const sg = c.tipo === "nota_credito" ? -1 : 1;
-    for (const it of c.items || []) if (it.producto_id) { const a = (st[it.producto_id] ??= { entra: 0, sale: 0 }); a.entra += sg * (Number(it.cantidad) || 0); }
+    for (const it of c.items || []) if (it.producto_id && !it.ignorar) a(it.producto_id).entra += sg * (Number(it.cantidad) || 0);
   }
-  for (const l of S.d.labores) for (const ins of l.insumos || []) if (ins.producto_id) {
-    const a = (st[ins.producto_id] ??= { entra: 0, sale: 0 });
-    a.sale += ins.cantidad != null ? Number(ins.cantidad) : cantidadInsumo(ins, l.superficie_ha).cant;
-  }
+  for (const l of S.d.labores) for (const ins of l.insumos || []) if (ins.producto_id) a(ins.producto_id).sale += ins.cantidad != null ? Number(ins.cantidad) : cantidadInsumo(ins, l.superficie_ha).cant;
+  for (const o of S.d.ordenes) if (o.estado === "pendiente" || o.estado === "en_curso") for (const ins of o.insumos || []) if (ins.producto_id) a(ins.producto_id).ordenes += ins.cantidad != null ? Number(ins.cantidad) : cantidadInsumo(ins, o.superficie_ha).cant;
   return st;
+}
+/* ---------- Catálogo de labores ---------- */
+const laborTipoDe = (id) => S.d.labores_tipo.find((t) => t.id === id);
+function nombreLabor(l) { return laborTipoDe(l?.labor_tipo_id)?.nombre || l?.tipo || "Labor"; }
+/* Precio del catálogo que rige en una fecha. El primer precio cargado rige desde siempre. */
+function precioCatalogo(t, fecha = hoy()) {
+  const ps = (t?.precios || []).filter((p) => p.precio != null).sort((a, b) => (a.desde || "").localeCompare(b.desde || ""));
+  let v = null; for (const p of ps) if (!p.desde || p.desde <= fecha) v = p;
+  return v;
+}
+const conPrecio = (l) => l.costo_ha != null && l.costo_estado !== "a_definir";
+function opcionesCatalogo(sel, extra = true) {
+  const g = {}; for (const t of S.d.labores_tipo) if (t.activo !== false || t.id === sel) (g[t.categoria || "Otra"] ??= []).push(t);
+  return `<option value="">Elegir labor…</option>` + TIPOS_LABOR.filter((c) => g[c]).map((c) => `<optgroup label="${esc(c)}">${g[c].sort((a, b) => a.nombre.localeCompare(b.nombre)).map((t) => { const p = precioCatalogo(t); return `<option value="${t.id}" ${t.id === sel ? "selected" : ""}>${esc(t.nombre)}${p ? ` · ${p.moneda === "ARS" ? "$" : "US$"} ${fmt(p.precio, 2)}/ha` : ""}</option>`; }).join("")}</optgroup>`).join("") + (extra ? `<option value="__nueva">+ Agregar una labor al catálogo…</option>` : "");
+}
+/* ---------- Insumos ---------- */
+const unidadDosis = (p) => ({ kg: "kg/ha", u: "u/ha" }[p?.unidad] || "L/ha");
+function opcionesProductos(sel, extra = true) {
+  const g = {}; for (const p of S.d.productos) (g[p.tipo || "otro"] ??= []).push(p);
+  return `<option value="">Elegir insumo…</option>` + TIPOS_PRODUCTO.filter((t) => g[t]).map((t) => `<optgroup label="${esc(t[0].toUpperCase() + t.slice(1))}">${g[t].sort((a, b) => a.nombre.localeCompare(b.nombre)).map((p) => `<option value="${p.id}" ${p.id === sel ? "selected" : ""}>${esc(p.nombre)}${p.principio_activo ? " · " + esc(p.principio_activo) : ""}</option>`).join("")}</optgroup>`).join("") + (extra ? `<option value="__nuevo">+ Crear un insumo nuevo…</option>` : "");
+}
+/* Clave para reconocer un nombre de insumo sin importar envase, mayúsculas ni acentos */
+function claveInsumo(s) {
+  return norm(s).replace(/\b(x\s*)?\d+([ .,]\d+)?\s*(l|lt|lts|litro|litros|kg|kgs|kilo|kilos|cc|ml|g|gr|grs)\b/g, " ").replace(/\b(x|bidon|bidones|bid|bolsa|bolsas|bls|envase|envases|caja|cajas|pack|unid|unidad|unidades|un|tambor|tambores|bigbag|big bag)\b/g, " ").replace(/\s+/g, " ").trim();
+}
+function productoPorTexto(txt) {
+  const k = claveInsumo(txt); if (!k) return null;
+  return S.d.productos.find((p) => claveInsumo(p.nombre) === k || (p.alias || []).some((a) => claveInsumo(a.texto ?? a) === k)) || null;
+}
+/* Editor de lista de insumos (producto de la lista + dosis por ha). lista se modifica en el lugar. */
+function editorInsumos(cont, lista, opts = {}) {
+  const ha = opts.ha || (() => 0);
+  const totFila = (row, i) => { const el = row.querySelector(".tot"); if (!el) return; const t = cantidadInsumo(i, ha()); el.textContent = i.dosis && ha() ? fmt(t.cant, 1) + " " + t.unidad : ""; };
+  const ed = {
+    pintar() {
+      cont.innerHTML = lista.length ? lista.map((i, k) => `<div class="ins-row" data-k="${k}"><div class="col" style="gap:2px;min-width:0"><select data-f="producto_id" aria-label="Insumo">${opcionesProductos(i.producto_id)}</select>${!i.producto_id && i.nombre ? `<span class="small" style="color:var(--warn)">Dictado: «${esc(i.nombre)}». Elegí el insumo de la lista.</span>` : ""}</div><input data-f="dosis" inputmode="decimal" value="${i.dosis ?? ""}" placeholder="Dosis" aria-label="Dosis por ha"><select data-f="unidad" aria-label="Unidad">${opciones(UNIDADES_DOSIS, i.unidad)}</select><span class="num small tot"></span><button type="button" class="ghost small danger" data-q="${k}" title="Quitar insumo">✕</button></div>`).join("") : `<div class="small muted">${opts.vacio || "Sin insumos."}</div>`;
+      cont.querySelectorAll("[data-k]").forEach((row) => {
+        const i = lista[+row.dataset.k]; totFila(row, i);
+        row.querySelector("[data-f=dosis]").oninput = (e) => { i.dosis = num(e.target.value); totFila(row, i); };
+        row.querySelector("[data-f=unidad]").onchange = (e) => { i.unidad = e.target.value; totFila(row, i); };
+        row.querySelector("[data-f=producto_id]").onchange = (e) => {
+          const v = e.target.value;
+          if (v === "__nuevo") { e.target.value = i.producto_id || ""; Insumos.formProducto(null, (p) => { i.producto_id = p.id; i.nombre = p.nombre; i.unidad = unidadDosis(p); ed.pintar(); }, { nombre: i.nombre, tipo: opts.tipoDef?.() }); return; }
+          const p = productoDe(v); i.producto_id = p?.id || null; i.nombre = p?.nombre || ""; if (p && dosisABase(1, i.unidad)[1] !== (p.unidad || "L")) i.unidad = unidadDosis(p); ed.pintar();
+        };
+      });
+      cont.querySelectorAll("[data-q]").forEach((b) => (b.onclick = () => { lista.splice(+b.dataset.q, 1); ed.pintar(); }));
+    },
+    agregar() { lista.push({ producto_id: null, nombre: "", dosis: null, unidad: "L/ha" }); ed.pintar(); cont.querySelector(`[data-k="${lista.length - 1}"] select`)?.focus(); },
+    reemplazar(nueva) { lista.splice(0, lista.length, ...nueva.map((i) => ({ ...i }))); ed.pintar(); },
+    /* Devuelve los insumos listos para guardar, o null y un mensaje si falta elegir alguno */
+    resultado() {
+      const out = [];
+      for (const i of lista) {
+        if (!i.producto_id) { if (i.dosis || i.nombre) return { error: `Elegí de la lista el insumo${i.nombre ? " «" + i.nombre + "»" : ""}. Si no está, usá "Crear un insumo nuevo".` }; continue; }
+        const p = productoDe(i.producto_id);
+        out.push({ producto_id: p.id, nombre: p.nombre, dosis: i.dosis, unidad: i.unidad, cantidad: +cantidadInsumo(i, ha()).cant.toFixed(3) });
+      }
+      return { insumos: out };
+    },
+    refrescarTotales() { cont.querySelectorAll("[data-k]").forEach((row) => totFila(row, lista[+row.dataset.k])); },
+  };
+  ed.pintar();
+  return ed;
 }
 function costoLabor(l, precios = preciosProductos()) {
   let ins = 0, insFalta = 0;
@@ -89,7 +160,7 @@ function costoLabor(l, precios = preciosProductos()) {
     const p = precios[i.producto_id];
     if (p != null) ins += p * q; else if (q) insFalta++;
   }
-  const lab = l.costo_ha != null && l.superficie_ha ? Number(l.costo_ha) * Number(l.superficie_ha) : null;
+  const lab = conPrecio(l) && l.superficie_ha ? Number(l.costo_ha) * Number(l.superficie_ha) : null;
   return { insumosUSD: ins, insumosSinPrecio: insFalta, labor: lab, moneda: l.moneda || "USD" };
 }
 
@@ -124,9 +195,10 @@ async function guardar(t, fila) {
 }
 async function borrar(t, id) { await DB.borrar(t, id); S.d[t] = S.d[t].filter((x) => x.id !== id); }
 async function cargarDatos() {
-  const r = await Promise.all(Object.keys(S.d).map((t) => DB.listar(t)));
+  const r = await Promise.all(Object.keys(S.d).map((t) => DB.listar(t).catch((e) => { if (t === "labores_tipo") { S.esquemaOk = false; return []; } throw e; })));
   Object.keys(S.d).forEach((t, i) => (S.d[t] = r[i]));
   for (const l of S.d.lotes) l.subs = l.subs || [];
+  for (const p of S.d.productos) p.alias = p.alias || [];
 }
 
 /* Selects */
@@ -189,7 +261,8 @@ function menuMas() {
   modal(`<h4>Más</h4><div class="col">
     <button class="big" data-ir="aplicaciones">Aplicaciones de agroquímicos</button>
     <button class="big" data-ir="comprobantes">Comprobantes</button>
-    <button class="big" data-ir="insumos">Insumos y proveedores</button>
+    <button class="big" data-ir="insumos">Insumos y stock del galpón</button>
+    <button class="big" data-ir="catalogo">Catálogo de labores y precios</button>
     <button class="big" id="mCuenta">Cuenta y datos</button></div>
     <div class="pie"><button id="mNo">Cerrar</button></div>`, (m, close) => {
     m.querySelectorAll("[data-ir]").forEach((b) => (b.onclick = () => { close(); irA(b.dataset.ir); }));
@@ -257,7 +330,7 @@ document.getElementById("fProj").onchange = async (e) => {
     m.querySelector("#mOk").onclick = async () => {
       close(); const fin = cargando("Importando…");
       try {
-        for (const t of ["lotes", "proveedores", "productos", "siembras", "comprobantes", "ordenes", "labores", "rindes"]) {
+        for (const t of ["lotes", "proveedores", "productos", "labores_tipo", "siembras", "comprobantes", "ordenes", "labores", "rindes"]) {
           const filas = (tablas[t] || []).map((r) => { const o = { ...r }; delete o.loteId; return o; });
           if (!filas.length) continue;
           if (t === "rindes") for (const r of filas) { r.path = r.path || r.id + ".json"; if (puntos[r.id]) await DB.subir("rindes", r.path, new Blob([JSON.stringify(puntos[r.id])], { type: "application/json" })); }

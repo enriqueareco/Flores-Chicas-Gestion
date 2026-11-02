@@ -197,3 +197,7 @@ nav.bottom{display:none}
   body.imprimiendo{overflow:visible;height:auto}
 }
 #imprimir{background:#fff}
+
+table.t th.right{text-align:right}
+.filtros .field.grow{flex:1 1 180px;min-width:180px}
+table.t.fija{table-layout:fixed}
