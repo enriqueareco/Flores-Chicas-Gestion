@@ -51,7 +51,25 @@ const contratistas = () => S.d.proveedores.filter((p) => p.tipo === "contratista
 
 /* Cultivos */
 function ordenSiembras(a, b) { return (a.fecha || "9999").localeCompare(b.fecha || "9999") || (a.creado || "").localeCompare(b.creado || ""); }
-function cultivosDe(l, subId, c = S.campana) { return S.d.siembras.filter((s) => s.lote_id === l.id && s.campana === c && (subId === undefined || !s.sub_id || s.sub_id === subId)).sort(ordenSiembras); }
+/* Cultivos que se mantienen de una campaña a la siguiente hasta que se cargue otro */
+const PERENNES = new Set(["Campo natural", "Promoción de ryegrass", "Pastura"]);
+function cultivosCargados(l, subId, c) { return S.d.siembras.filter((s) => s.lote_id === l.id && s.campana === c && (subId === undefined || !s.sub_id || s.sub_id === subId)).sort(ordenSiembras); }
+/* Si en la campaña no hay nada cargado y la última campaña con datos terminó con un cultivo perenne, ese cultivo continúa */
+function cultivoHeredado(l, subId, c) {
+  const anteriores = [...new Set(S.d.siembras.filter((s) => s.lote_id === l.id && s.campana < c).map((s) => s.campana))].sort().reverse();
+  for (const ca of anteriores) {
+    const cs = cultivosCargados(l, subId, ca);
+    if (!cs.length) continue;
+    const ult = cs[cs.length - 1];
+    return PERENNES.has(ult.cultivo) ? { ...ult, campana: c, heredado: true, desde_campana: ult.heredado ? ult.desde_campana : ca } : null;
+  }
+  return null;
+}
+function cultivosDe(l, subId, c = S.campana) {
+  const r = cultivosCargados(l, subId, c); if (r.length) return r;
+  if (subId === undefined && (l.subs || []).length) { const hs = l.subs.map((sb) => cultivoHeredado(l, sb.id, c)).filter(Boolean); if (hs.length) return hs; }
+  const h = cultivoHeredado(l, subId, c); return h ? [h] : [];
+}
 function siembraDe(l, c = S.campana) { return cultivosDe(l, undefined, c)[0]; }
 const colorCult = (n) => CULTIVOS[n] || CULTIVOS.Otro;
 function colorDe(l) { const s = siembraDe(l); return s ? colorCult(s.cultivo) : SIN; }

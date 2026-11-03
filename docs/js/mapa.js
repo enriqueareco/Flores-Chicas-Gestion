@@ -265,16 +265,20 @@ function editarContorno(l) {
 }
 
 /* ============ Cultivos por campaña ============ */
-function formSiembra(l, sid) {
+function formSiembra(l, sid, def = {}) {
   const x = sid ? S.d.siembras.find((s) => s.id === sid) : null;
+  const d = x || def;
   modal(`<h4>${x ? "Editar" : "Agregar"} cultivo · ${esc(l.nombre)}</h4>
     <div class="row"><div class="field"><label class="lbl" for="sCamp">Campaña</label><select id="sCamp">${opciones(campanas(), x?.campana || S.campana)}</select></div>
     <div class="field grow"><label class="lbl" for="sCult">Cultivo</label><select id="sCult">${opciones(Object.keys(CULTIVOS), x?.cultivo)}</select></div></div>
-    ${l.subs.length ? `<div class="field"><label class="lbl" for="sSub">Dónde</label><select id="sSub">${opcionesSubs(l, x?.sub_id).replace("Lote completo", "Lote completo · " + fmt(haDe(l.geom)) + " ha")}</select></div>` : ""}
+    ${l.subs.length ? `<div class="field"><label class="lbl" for="sSub">Dónde</label><select id="sSub">${opcionesSubs(l, d?.sub_id).replace("Lote completo", "Lote completo · " + fmt(haDe(l.geom)) + " ha")}</select></div>` : ""}
     <div class="row"><div class="field grow"><label class="lbl" for="sHib">Híbrido / variedad</label><input id="sHib" value="${esc(x?.hibrido || "")}"></div><div class="field"><label class="lbl" for="sFec">Fecha de siembra</label><input type="date" id="sFec" value="${esc(x?.fecha || "")}"></div></div>
     <div class="field"><label class="lbl" for="sNot">Notas</label><input id="sNot" value="${esc(x?.notas || "")}" placeholder="Densidad, fertilización, antecesor…"></div>
+    <div class="small muted" id="sPer"></div>
     <div class="pie">${x ? '<button class="danger ghost" id="mDel" style="margin-right:auto">Quitar</button>' : ""}<button id="mNo">Cancelar</button><button class="primary" id="mOk">Guardar</button></div>`, (m, close) => {
     const $ = (q) => m.querySelector(q); $("#mNo").onclick = close;
+    const per = () => { $("#sPer").textContent = PERENNES.has($("#sCult").value) ? "Este cultivo se mantiene en las campañas siguientes hasta que cargues otro." : ""; };
+    $("#sCult").onchange = per; per();
     if ($("#mDel")) $("#mDel").onclick = async () => { await borrar("siembras", x.id); close(); dibujarLotes(); render(); };
     $("#mOk").onclick = async () => {
       const n = { ...(x || {}), id: x?.id || uid(), lote_id: l.id, campana: $("#sCamp").value, cultivo: $("#sCult").value, hibrido: $("#sHib").value.trim(), fecha: $("#sFec").value || null, notas: $("#sNot").value.trim(), sub_id: $("#sSub")?.value || null };
@@ -317,7 +321,9 @@ function bindResumen() {
 }
 function htmlLote(l) {
   const ha = haDe(l.geom); const s = siembraDe(l); const tc = textoCultivos(l);
-  const sb = S.d.siembras.filter((x) => x.lote_id === l.id).sort((a, b) => b.campana.localeCompare(a.campana) || ordenSiembras(a, b));
+  const unidades = l.subs.length ? l.subs.map((x) => x.id) : [undefined];
+  const heredados = cultivosCargados(l, undefined, S.campana).length && !l.subs.length ? [] : unidades.filter((u) => !cultivosCargados(l, u, S.campana).length).map((u) => { const h = cultivoHeredado(l, u, S.campana); return h ? { ...h, sub_id: u ?? h.sub_id } : null; }).filter(Boolean);
+  const sb = [...heredados, ...S.d.siembras.filter((x) => x.lote_id === l.id).sort((a, b) => b.campana.localeCompare(a.campana) || ordenSiembras(a, b))];
   const rs = S.d.rindes.filter((r) => r.lote_id === l.id).sort((a, b) => (b.campana || "").localeCompare(a.campana || ""));
   const labs = S.d.labores.filter((x) => x.lote_id === l.id && x.campana === S.campana).sort((a, b) => (b.fecha || "").localeCompare(a.fecha || ""));
   const ords = S.d.ordenes.filter((o) => o.lote_id === l.id && (o.estado === "pendiente" || o.estado === "en_curso"));
@@ -343,7 +349,7 @@ function htmlLote(l) {
     ${l.subs.length ? `<table class="t"><tr><th>Sector</th><th class="right">ha</th><th>${esc(S.campana)}</th><th></th></tr>${l.subs.map((x) => `<tr><td><span class="chip"><i style="background:${colorSub(l, x)}"></i>${esc(x.nombre)}</span></td><td class="num right">${fmt(haDe(x.geom))}</td><td class="small">${esc(textoCultivos(l, x.id)) || '<span class="muted">—</span>'}</td><td style="white-space:nowrap"><button class="ghost small" data-sbn="${x.id}">Renombrar</button><button class="ghost small danger" data-sbd="${x.id}" title="Quitar sector">✕</button></td></tr>`).join("")}</table>` : `<div class="empty">Dividí el lote si tiene partes con cultivos distintos: con una línea que lo cruce, o dibujando un sector adentro (un bajo, una franja).</div>`}
   </section>
   <section class="blk"><div class="row" style="justify-content:space-between"><h2>Cultivos por campaña</h2><button id="bAddS">+ Agregar cultivo</button></div>
-    ${sb.length ? `<table class="t"><tr><th>Campaña</th><th>Cultivo</th><th>Detalle</th><th></th></tr>${sb.map((x) => `<tr><td class="num">${esc(x.campana)}</td><td><span class="chip"><i style="background:${colorCult(x.cultivo)}"></i>${esc(x.cultivo)}</span>${l.subs.length ? `<div class="small muted" style="margin-top:3px">${x.sub_id ? esc(subNom(l, x.sub_id)) : "Lote completo"}</div>` : ""}</td><td class="small">${esc(x.hibrido || "")}${x.fecha ? `<br><span class="muted">${fechaAR(x.fecha)}</span>` : ""}${x.notas ? `<br><span class="muted">${esc(x.notas)}</span>` : ""}</td><td><button class="ghost small" data-es="${x.id}">Editar</button></td></tr>`).join("")}</table>` : `<div class="empty">Cargá qué tuvo sembrado este lote en cada campaña. Podés agregar varios cultivos por campaña (por ejemplo trigo y soja de 2da).</div>`}
+    ${sb.length ? `<table class="t"><tr><th>Campaña</th><th>Cultivo</th><th>Detalle</th><th></th></tr>${sb.map((x) => `<tr><td class="num">${esc(x.campana)}</td><td><span class="chip"><i style="background:${colorCult(x.cultivo)}"></i>${esc(x.cultivo)}</span>${l.subs.length ? `<div class="small muted" style="margin-top:3px">${x.sub_id ? esc(subNom(l, x.sub_id)) : "Lote completo"}</div>` : ""}</td><td class="small">${x.heredado ? `<span class="pill mut">continúa desde ${esc(x.desde_campana)}</span>` : `${esc(x.hibrido || "")}${x.fecha ? `<br><span class="muted">${fechaAR(x.fecha)}</span>` : ""}${x.notas ? `<br><span class="muted">${esc(x.notas)}</span>` : ""}`}</td><td>${x.heredado ? `<button class="ghost small" data-cambiar="${esc(x.sub_id || "")}">Cambiar</button>` : `<button class="ghost small" data-es="${x.id}">Editar</button>`}</td></tr>`).join("")}</table>` : `<div class="empty">Cargá qué tuvo sembrado este lote en cada campaña. Podés agregar varios cultivos por campaña (por ejemplo trigo y soja de 2da).</div>`}
   </section>
   <section class="blk"><div class="row" style="justify-content:space-between"><h2>Mapas de rinde</h2><button id="bAddR">+ Cargar shapefile</button></div>
     ${rs.length ? rs.map((r) => `<div style="border:1px solid var(--line);border-radius:6px;padding:8px 10px;display:flex;flex-direction:column;gap:6px">
@@ -388,6 +394,7 @@ function bindLote(l) {
   $("bPreg").onclick = preguntar; $("qLote").onkeydown = (e) => { if (e.key === "Enter") preguntar(); };
   $("bAddS").onclick = () => formSiembra(l);
   document.querySelectorAll("[data-es]").forEach((b) => (b.onclick = () => formSiembra(l, b.dataset.es)));
+  document.querySelectorAll("[data-cambiar]").forEach((b) => (b.onclick = () => formSiembra(l, null, { sub_id: b.dataset.cambiar || null })));
   $("bLinea").onclick = () => Dib.iniciar({ modo: "linea", titulo: "Dividir " + l.nombre, onDone: (g) => dividirConLinea(l, g) });
   $("bSector").onclick = () => Dib.iniciar({ titulo: "Sector en " + l.nombre, onDone: (g) => agregarSector(l, g) });
   document.querySelectorAll("[data-sbn]").forEach((b) => (b.onclick = () => formSub(l, l.subs.find((x) => x.id === b.dataset.sbn))));
