@@ -4,10 +4,10 @@ const TABLAS = {
   lotes: ["id", "nombre", "campo", "geom", "subs", "notas", "creado"],
   siembras: ["id", "lote_id", "sub_id", "campana", "cultivo", "hibrido", "fecha", "notas", "creado"],
   rindes: ["id", "lote_id", "campana", "cultivo", "campo", "unidad", "archivo", "n", "stats", "path", "creado"],
-  proveedores: ["id", "nombre", "cuit", "tipo", "telefono", "notas", "creado"],
+  proveedores: ["id", "nombre", "cuit", "tipo", "alias", "telefono", "notas", "creado"],
   productos: ["id", "nombre", "tipo", "principio_activo", "concentracion", "unidad", "alias", "precio", "moneda", "notas", "creado"],
   labores_tipo: ["id", "nombre", "categoria", "precios", "insumos", "activo", "notas", "creado"],
-  comprobantes: ["id", "tipo", "letra", "numero", "fecha", "proveedor_id", "proveedor_nombre", "cuit", "moneda", "tipo_cambio", "total", "items", "mueve_stock", "archivos", "estado", "origen", "ia", "notas", "campana", "creado", "creado_por"],
+  comprobantes: ["id", "tipo", "letra", "numero", "fecha", "proveedor_id", "proveedor_nombre", "cuit", "moneda", "tipo_cambio", "total", "items", "remitos", "mueve_stock", "archivos", "estado", "origen", "ia", "notas", "campana", "creado", "creado_por"],
   ordenes: ["id", "numero", "labor_tipo_id", "lote_id", "sub_id", "campana", "tipo", "contratista_id", "contratista", "fecha_emision", "fecha_prevista", "superficie_ha", "insumos", "indicaciones", "estado", "labor_id", "creado", "creado_por"],
   labores: ["id", "lote_id", "sub_id", "campana", "fecha", "labor_tipo_id", "tipo", "contratista_id", "contratista", "superficie_ha", "costo_ha", "moneda", "costo_estado", "insumos", "condiciones", "orden_id", "origen", "notas", "creado", "creado_por"],
 };
@@ -62,7 +62,7 @@ const DB = {
   /* Devuelve false si falta correr la actualización de la base (migracion_02.sql) */
   async esquemaAlDia() {
     if (this.modo !== "nube") return true;
-    const r = await Promise.all([this.sb.from("labores_tipo").select("id").limit(1), this.sb.from("productos").select("alias").limit(1), this.sb.from("labores").select("labor_tipo_id").limit(1)]);
+    const r = await Promise.all([this.sb.from("labores_tipo").select("id").limit(1), this.sb.from("productos").select("alias").limit(1), this.sb.from("labores").select("labor_tipo_id").limit(1), this.sb.from("proveedores").select("alias").limit(1), this.sb.from("comprobantes").select("remitos").limit(1)]);
     return r.every((x) => !x.error);
   },
   async entrar(email, clave) {

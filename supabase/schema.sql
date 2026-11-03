@@ -41,6 +41,7 @@ create table if not exists proveedores (
   nombre text not null,
   cuit text,
   tipo text default 'proveedor',          -- proveedor | contratista | ambos
+  alias jsonb not null default '[]',      -- otros nombres en los comprobantes [{texto, cuit}]
   telefono text,
   notas text,
   creado timestamptz default now()
@@ -86,6 +87,7 @@ create table if not exists comprobantes (
   tipo_cambio numeric,
   total numeric,
   items jsonb not null default '[]',
+  remitos jsonb not null default '[]',     -- facturas: ids de los remitos que incluye
   mueve_stock boolean default true,
   archivos jsonb not null default '[]',
   estado text default 'borrador',          -- borrador | confirmado

@@ -71,6 +71,11 @@ Cuando una versión nueva necesita cambios en la base o en la función de IA, se
 
 Mientras no se corra el paso 1, la app muestra un aviso rojo y no deja guardar el catálogo.
 
+**Actualización 3 (proveedores y control de remitos contra facturas)**
+
+1. En Supabase, entrá a **SQL Editor → New query**, pegá todo `supabase/migracion_03.sql` y tocá **Run**. Este archivo ya incluye la actualización 2, así que si no corriste la 2 alcanza con este.
+2. En **Edge Functions → ia → Code**, reemplazá el código por el de `supabase/functions/ia/index.ts` y tocá **Deploy**.
+
 ## Cómo se usa
 
 - **Cargar (botón +):** es la pantalla de inicio en el teléfono. Desde ahí sacás fotos de comprobantes, subís facturas en PDF, dictás labores y armás órdenes de trabajo.
@@ -94,6 +99,11 @@ Mientras no se corra el paso 1, la app muestra un aviso rojo y no deja guardar e
   - Es la lista fija de insumos. En labores, órdenes y catálogo se eligen siempre de esta lista.
   - El stock sube al confirmar remitos y facturas, y baja al cargar labores. **Ajustar stock** sirve para cargar el inventario inicial o corregir lo contado en el galpón.
   - El precio vigente es el de la última factura; si todavía no hay factura, se usa el precio de referencia cargado a mano.
+- **Proveedores:**
+  - Es la lista de proveedores de insumos y de contratistas de labores.
+  - Al subir un comprobante, el proveedor se reconoce por CUIT o por nombre. Si figura con otro nombre, la app pregunta cuál es y lo recuerda.
+  - Al confirmar una factura, se tildan los remitos que incluye y se compara insumo por insumo lo recibido contra lo facturado.
+  - En la ficha de cada proveedor están los remitos sin facturar, las facturas con diferencias y, para contratistas, las hectáreas trabajadas contra lo facturado.
 - **Remitos con otra marca:**
   - Cada renglón del remito se asigna a un insumo de tu lista. Si el nombre ya se vio antes, se reconoce solo.
   - Si es nuevo, la IA sugiere a qué insumo corresponde y la app te pregunta antes de confirmarlo.

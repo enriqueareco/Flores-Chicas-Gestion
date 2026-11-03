@@ -47,7 +47,11 @@ const TOOL_COMPROBANTE = {
       fecha: { type: ["string", "null"], description: "Fecha de emisión YYYY-MM-DD" },
       proveedor: {
         type: "object",
-        properties: { nombre: { type: "string" }, cuit: { type: ["string", "null"], description: "CUIT del emisor, solo dígitos" } },
+        properties: {
+          nombre: { type: "string", description: "Nombre del emisor tal como figura en el comprobante" },
+          cuit: { type: ["string", "null"], description: "CUIT del emisor, solo dígitos" },
+          id: { type: ["string", "null"], description: "id del proveedor de la lista del usuario que corresponde (por CUIT, o por nombre aunque esté escrito distinto o sea el nombre de fantasía). null si no está en la lista." },
+        },
         required: ["nombre"],
       },
       moneda: { type: "string", enum: ["ARS", "USD"] },
@@ -71,6 +75,7 @@ const TOOL_COMPROBANTE = {
           required: ["descripcion", "cantidad", "unidad", "tipo_producto"],
         },
       },
+      remitos_referenciados: { type: "array", items: { type: "string" }, description: "Números de remito que la factura menciona (ej. 'Remito 0001-00004567'). Vacío si no menciona ninguno." },
       neto: { type: ["number", "null"] },
       iva: { type: ["number", "null"] },
       total: { type: ["number", "null"] },
@@ -159,7 +164,7 @@ Deno.serve(async (req) => {
         text: "Leé este comprobante de un proveedor de un establecimiento agropecuario de Argentina y registrá sus datos. " +
           "Si hay varias imágenes son páginas del mismo comprobante. Los precios unitarios van sin IVA. " +
           "Si un dato no se lee con seguridad, ponelo en null y mencionalo en observaciones. " +
-          (b.contexto?.proveedores?.length ? "Proveedores ya cargados (usá el mismo nombre si coincide): " + b.contexto.proveedores.join("; ") + ". " : "") +
+          (b.contexto?.proveedores?.length ? "Proveedores de la lista del usuario (para proveedor.id): " + JSON.stringify(b.contexto.proveedores) + ". " : "") +
           (b.contexto?.productos?.length ? "Insumos de la lista del usuario (para producto_id; la cantidad va en la unidad de ese insumo): " + JSON.stringify(b.contexto.productos) : ""),
       });
       const j = await claude({

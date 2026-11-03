@@ -48,14 +48,19 @@ const Comprobantes = {
     const fin = cargando("Leyendo el comprobante con IA" + sufijo + "…");
     try {
       const r = await DB.ia("comprobante", { archivos: c.archivos, contexto: {
-        proveedores: S.d.proveedores.slice(0, 200).map((p) => p.nombre + (p.cuit ? ` (${p.cuit})` : "")),
+        proveedores: S.d.proveedores.slice(0, 300).map((p) => ({ id: p.id, nombre: p.nombre, cuit: p.cuit, otros_nombres: (p.alias || []).map((a) => a.texto ?? a).slice(0, 6) })),
         productos: S.d.productos.slice(0, 400).map((p) => ({ id: p.id, nombre: p.nombre, tipo: p.tipo, principio_activo: p.principio_activo, concentracion: p.concentracion, unidad: p.unidad, otros_nombres: (p.alias || []).map((a) => a.texto ?? a).slice(0, 10) })),
       } });
       const d = r.datos || {}; c.ia = d;
       c.tipo = d.tipo || c.tipo; c.letra = d.letra || null; c.numero = d.numero || null; c.fecha = d.fecha || null;
       c.moneda = d.moneda || "ARS"; c.tipo_cambio = d.tipo_cambio || null; c.total = d.total ?? null;
       c.proveedor_nombre = d.proveedor?.nombre || null; c.cuit = soloDig(d.proveedor?.cuit) || null;
-      const pv = buscarProveedor(c.proveedor_nombre, c.cuit); c.proveedor_id = pv?.id || null;
+      c.prov_leido = { nombre: c.proveedor_nombre, cuit: c.cuit };
+      const pv = buscarProveedor(c.proveedor_nombre, c.cuit); const sug = proveedorDe(d.proveedor?.id);
+      c.proveedor_id = pv?.id || sug?.id || null; c.prov_match = pv ? "conocido" : sug ? "sugerido" : null;
+      /* Remitos que la factura menciona: se vinculan solos si ya están cargados */
+      const dig = (x) => soloDig(x).replace(/^0+/, "").slice(-8);
+      if (esFactura(c) && c.proveedor_id) { const refs = (d.remitos_referenciados || []).map(dig).filter(Boolean); c.remitos = S.d.comprobantes.filter((r) => r.tipo === "remito" && r.proveedor_id === c.proveedor_id && refs.some((x) => dig(r.numero).endsWith(x) || x.endsWith(dig(r.numero)))).map((r) => r.id); }
       c.mueve_stock = c.tipo !== "nota_debito";
       c.items = (d.items || []).map((it) => Comprobantes.asignar({ ...it, sugerido_id: it.producto_id || null, producto_id: null }));
       c.campana = campanaDeFecha(c.fecha);
@@ -88,8 +93,9 @@ const Comprobantes = {
             <div class="field"><label class="lbl" for="cLetra">Letra</label><input id="cLetra" value="${esc(c.letra || "")}" style="width:52px" maxlength="1"></div>
             <div class="field grow"><label class="lbl" for="cNum">Número</label><input id="cNum" value="${esc(c.numero || "")}" placeholder="0003-00012345"></div>
             <div class="field"><label class="lbl" for="cFecha">Fecha</label><input type="date" id="cFecha" value="${esc(c.fecha || "")}"></div></div>
-          <div class="row"><div class="field grow"><label class="lbl" for="cProv">Proveedor</label><input id="cProv" list="dlProvs" value="${esc(prov?.nombre || c.proveedor_nombre || "")}"><datalist id="dlProvs">${S.d.proveedores.map((p) => `<option value="${esc(p.nombre)}">`).join("")}</datalist></div>
-            <div class="field"><label class="lbl" for="cCuit">CUIT</label><input id="cCuit" value="${esc(prov?.cuit || c.cuit || "")}" inputmode="numeric" style="width:140px"></div></div>
+          <div class="field"><label class="lbl" for="cProvSel">Proveedor</label><select id="cProvSel"><option value="">Elegir proveedor…</option>${opciones([...S.d.proveedores].sort((a, b) => a.nombre.localeCompare(b.nombre)).map((p) => [p.id, p.nombre + (p.cuit ? " · " + p.cuit : "")]), c.proveedor_id || "")}<option value="__nuevo" ${!c.proveedor_id && (c.proveedor_nombre || c.cuit) ? "selected" : ""}>+ Proveedor nuevo…</option></select></div>
+          <div class="row" id="cProvNuevo"><div class="field grow"><label class="lbl" for="cProv">Nombre del proveedor nuevo</label><input id="cProv" value="${esc(c.proveedor_nombre || "")}"></div>
+            <div class="field"><label class="lbl" for="cCuit">CUIT</label><input id="cCuit" value="${esc(c.cuit || "")}" inputmode="numeric" style="width:140px"></div></div>
           <div class="small" id="cProvEstado"></div>
           <div class="row" id="cPrecios"><div class="field"><label class="lbl" for="cMon">Moneda</label><select id="cMon">${opciones([["ARS", "Pesos"], ["USD", "Dólares"]], c.moneda)}</select></div>
             <div class="field"><label class="lbl" for="cTC">Tipo de cambio</label><input id="cTC" inputmode="decimal" value="${c.tipo_cambio ?? ""}" style="width:110px" placeholder="$ por US$"></div>
@@ -97,7 +103,8 @@ const Comprobantes = {
           <div class="row" style="justify-content:space-between"><h2>¿Qué insumo es cada renglón?</h2><button id="cAddIt" class="small">+ Renglón</button></div>
           <div id="cResumen" class="small"></div>
           <div id="cItems" class="col" style="gap:8px"></div>
-          <label class="row small"><input type="checkbox" id="cStock" ${c.mueve_stock !== false ? "checked" : ""}> Ingresa mercadería al galpón <span class="muted">(destildá si es la factura de un remito ya cargado)</span></label>
+          <div id="cRemBox" class="col" style="gap:6px"></div>
+          <label class="row small"><input type="checkbox" id="cStock" ${c.mueve_stock !== false ? "checked" : ""}> Ingresa mercadería al galpón <span class="muted" id="cStockTxt">(destildá si es la factura de un remito ya cargado)</span></label>
           <div class="field"><label class="lbl" for="cNot">Notas</label><input id="cNot" value="${esc(c.notas || "")}"></div>
         </div>
       </div>
@@ -139,10 +146,45 @@ const Comprobantes = {
         $("#cItems").querySelectorAll("[data-del]").forEach((b) => (b.onclick = () => { items.splice(+b.dataset.del, 1); pintarItems(); }));
         resumen();
       };
-      const estadoProv = () => { const p = buscarProveedor($("#cProv").value, $("#cCuit").value); $("#cProvEstado").innerHTML = !$("#cProv").value.trim() ? "" : p ? `<span class="pill ok">Proveedor conocido</span> ${esc(p.nombre)}` : `<span class="pill mut">Proveedor nuevo</span> se agrega al confirmar`; };
-      pintarItems(); estadoProv();
+      let remSel = new Set(c.remitos || []); let stockTocado = c.estado === "confirmado";
+      $("#cStock").onchange = () => (stockTocado = true);
+      const provSel = () => proveedorDe($("#cProvSel").value);
+      const leido = c.prov_leido || (c.ia ? { nombre: c.ia.proveedor?.nombre, cuit: c.ia.proveedor?.cuit } : null);
+      const estadoProv = () => {
+        const v = $("#cProvSel").value, p = provSel(); $("#cProvNuevo").hidden = v !== "__nuevo";
+        const dice = leido?.nombre ? `En el comprobante dice <b>${esc(leido.nombre)}</b>${leido.cuit ? " · CUIT " + esc(leido.cuit) : ""}. ` : "";
+        if (v === "__nuevo") { const parecido = buscarProveedor($("#cProv").value, $("#cCuit").value); $("#cProvEstado").innerHTML = parecido ? `<div class="aviso">${dice}Se parece a <b>${esc(parecido.nombre)}</b>, que ya está en tu lista. <button type="button" class="small primary" id="cUsarParecido">Es ese</button></div>` : `<span class="pill mut">Proveedor nuevo</span> ${dice ? dice + "No está en tu lista: si es uno de tus proveedores con otro nombre, elegilo arriba." : "Se agrega a tu lista al confirmar."}`; const b = $("#cUsarParecido"); if (b) b.onclick = () => { $("#cProvSel").value = parecido.id; c.prov_match = "manual"; estadoProv(); }; }
+        else if (!p) $("#cProvEstado").innerHTML = dice ? `<div class="aviso">${dice}Elegí a qué proveedor de tu lista corresponde o creá uno nuevo.</div>` : "";
+        else if (c.prov_match === "sugerido") { $("#cProvEstado").innerHTML = `<span class="pill warn">¿Es este proveedor?</span> ${dice} <button type="button" class="small primary" id="cProvSi">Sí, es ${esc(p.nombre)}</button>`; $("#cProvSi").onclick = () => { c.prov_match = "manual"; estadoProv(); }; }
+        else $("#cProvEstado").innerHTML = `<span class="pill ok">Proveedor reconocido</span> ${esc(p.nombre)}${p.tipo === "contratista" ? " · contratista de labores" : ""}`;
+        pintarRemitos();
+      };
+      /* Factura: elegir los remitos que incluye y comparar cantidades */
+      const pintarRemitos = () => {
+        const box = $("#cRemBox"); const p = provSel(); const tipo = $("#cTipo").value;
+        if (!p || p.tipo === "contratista") { box.innerHTML = ""; return; }
+        const fact = remitosFacturados();
+        if (tipo === "remito") { const f = fact.get(c.id); box.innerHTML = c.estado === "confirmado" ? (f ? `<span class="pill ok">Facturado</span> <span class="small">en ${esc(nombreTipoComp(f.tipo))} ${esc(f.numero || "")} del ${fechaAR(f.fecha)}</span>` : `<span class="pill warn">Sin facturar todavía</span>`) : ""; return; }
+        const disp = S.d.comprobantes.filter((r) => r.tipo === "remito" && r.estado === "confirmado" && r.proveedor_id === p.id && (!fact.has(r.id) || fact.get(r.id).id === c.id || remSel.has(r.id))).sort((a, b) => (a.fecha || "").localeCompare(b.fecha || ""));
+        for (const id of [...remSel]) if (!disp.some((r) => r.id === id)) remSel.delete(id);
+        if (!disp.length) { box.innerHTML = `<div class="small muted">${esc(p.nombre)} no tiene remitos sin facturar. Si la mercadería llegó con esta factura, dejá tildado "Ingresa mercadería al galpón".</div>`; if (!stockTocado) $("#cStock").checked = true; return; }
+        const fac = {}; for (const it of items) if (it.producto_id && !it.ignorar) fac[it.producto_id] = (fac[it.producto_id] || 0) + (Number(it.cantidad) || 0);
+        const rec = {}; for (const id of remSel) { const r = disp.find((x) => x.id === id); if (r) cantItems(r, rec); }
+        const ks = [...new Set([...Object.keys(rec), ...Object.keys(fac)])];
+        box.innerHTML = `<h2>Remitos que incluye esta factura</h2>
+          <div class="col" style="gap:2px">${disp.map((r) => `<label class="row small" style="gap:6px"><input type="checkbox" data-rem="${r.id}" ${remSel.has(r.id) ? "checked" : ""}> Remito <b class="num">${esc(r.numero || "s/n")}</b> · ${fechaAR(r.fecha)} · <span class="muted">${(r.items || []).filter((i) => i.producto_id).map((i) => `${esc(productoDe(i.producto_id)?.nombre || "")} ${fmt(i.cantidad, 0)} ${esc(i.unidad || "")}`).join(", ")}</span></label>`).join("")}</div>
+          ${remSel.size ? `<div class="tablewrap"><table class="t"><tr><th>Insumo</th><th class="right">Recibido (remitos)</th><th class="right">Facturado</th><th class="right">Diferencia</th></tr>${ks.map((k) => { const d = (fac[k] || 0) - (rec[k] || 0); const pr = productoDe(k); return `<tr><td>${esc(pr?.nombre || "")}</td><td class="num right">${fmt(rec[k] || 0, 1)}</td><td class="num right">${fmt(fac[k] || 0, 1)}</td><td class="num right">${Math.abs(d) < 0.001 ? '<span class="pill ok">OK</span>' : `<span class="pill ${d > 0 ? "bad" : "warn"}">${d > 0 ? "+" : ""}${fmt(d, 1)} ${esc(pr?.unidad || "")}</span><div class="small muted">${d > 0 ? "facturado de más" : "falta facturar"}</div>`}</td></tr>`; }).join("")}</table></div>` : `<div class="small muted">Tildá los remitos que corresponden a esta factura para comparar lo recibido con lo facturado.</div>`}`;
+        box.querySelectorAll("[data-rem]").forEach((ck) => (ck.onchange = () => { ck.checked ? remSel.add(ck.dataset.rem) : remSel.delete(ck.dataset.rem); if (!stockTocado) $("#cStock").checked = !remSel.size; pintarRemitos(); }));
+        if (!stockTocado) $("#cStock").checked = !remSel.size;
+        $("#cStockTxt").textContent = remSel.size ? "(destildado: la mercadería ya entró con los remitos)" : "(destildá si es la factura de un remito ya cargado)";
+      };
+      /* Contratistas: sus renglones son servicios, no van al galpón */
+      const marcarServicios = () => { if (provSel()?.tipo === "contratista") for (const it of items) if (!it.producto_id && !it.match) { it.ignorar = true; it.match = "manual"; } };
+      marcarServicios(); pintarItems(); estadoProv();
+      $("#cProvSel").onchange = () => { c.prov_match = "manual"; marcarServicios(); pintarItems(); estadoProv(); };
       $("#cProv").oninput = estadoProv; $("#cCuit").oninput = estadoProv;
-      $("#cProv").onchange = () => { const p = buscarProveedor($("#cProv").value); if (p?.cuit && !$("#cCuit").value) $("#cCuit").value = p.cuit; estadoProv(); };
+      $("#cTipo").onchange = pintarRemitos;
+      $("#cItems").addEventListener("change", () => setTimeout(pintarRemitos, 0));
       $("#cAddIt").onclick = () => { items.push({ ...it0 }); pintarItems(); };
       $("#mNo").onclick = close;
       $("#cDel").onclick = async () => {
@@ -152,14 +194,15 @@ const Comprobantes = {
       };
       const juntar = () => {
         m.querySelectorAll("#cItems [data-i]").forEach((row) => { const it = items[+row.dataset.i]; row.querySelectorAll("input[data-k],select[data-k=unidad]").forEach((inp) => { const k = inp.dataset.k; it[k] = k === "cantidad" || k === "precio_unitario" ? num(inp.value) : inp.value; }); });
-        Object.assign(c, { tipo: $("#cTipo").value, letra: $("#cLetra").value.trim().toUpperCase() || null, numero: $("#cNum").value.trim() || null, fecha: $("#cFecha").value || null, proveedor_nombre: $("#cProv").value.trim() || null, cuit: soloDig($("#cCuit").value) || null, moneda: $("#cMon").value, tipo_cambio: num($("#cTC").value), total: num($("#cTot").value), mueve_stock: $("#cStock").checked, notas: $("#cNot").value.trim() || null });
+        Object.assign(c, { tipo: $("#cTipo").value, letra: $("#cLetra").value.trim().toUpperCase() || null, numero: $("#cNum").value.trim() || null, fecha: $("#cFecha").value || null, proveedor_nombre: $("#cProvSel").value === "__nuevo" ? $("#cProv").value.trim() || null : provSel()?.nombre || null, cuit: $("#cProvSel").value === "__nuevo" ? soloDig($("#cCuit").value) || null : provSel()?.cuit || c.cuit || null, proveedor_id: provSel()?.id || null, remitos: esFactura({ tipo: $("#cTipo").value }) ? [...remSel] : [], moneda: $("#cMon").value, tipo_cambio: num($("#cTC").value), total: num($("#cTot").value), mueve_stock: $("#cStock").checked, notas: $("#cNot").value.trim() || null });
         c.campana = campanaDeFecha(c.fecha);
         c.items = items.filter((it) => it.descripcion || it.producto_id).map((it) => ({ ...it, subtotal: it.cantidad != null && it.precio_unitario != null ? +(it.cantidad * it.precio_unitario).toFixed(2) : it.subtotal ?? null }));
       };
       if ($("#cBorr")) $("#cBorr").onclick = async () => { juntar(); try { await guardar("comprobantes", c); close(); refrescar(); toast("Borrador guardado"); } catch (e) { toast(e.message, 6000); } };
       $("#cOk").onclick = async () => {
         juntar();
-        if (!c.proveedor_nombre) { toast("Falta el proveedor."); $("#cProv").focus(); return; }
+        if (!c.proveedor_id && !c.proveedor_nombre) { toast("Elegí el proveedor de tu lista, o cargá uno nuevo."); $("#cProvSel").focus(); return; }
+        if (c.prov_match === "sugerido" && c.proveedor_id && !(await confirmar(`¿El comprobante es de <b>${esc(provSel().nombre)}</b>?`, "Sí"))) return;
         if (!c.items.length) { toast("Agregá al menos un renglón."); return; }
         const sinAsignar = c.items.filter((it) => !it.producto_id && !it.ignorar);
         if (sinAsignar.length) { toast(`Elegí a qué insumo pertenece «${sinAsignar[0].descripcion}», o marcalo como que no va al galpón.`, 7000); return; }
@@ -172,10 +215,14 @@ const Comprobantes = {
         }
         const fin = cargando("Guardando…");
         try {
-          let p = buscarProveedor(c.proveedor_nombre, c.cuit);
-          if (!p) p = await guardar("proveedores", { id: uid(), nombre: c.proveedor_nombre, cuit: c.cuit, tipo: "proveedor" });
-          else if (c.cuit && !p.cuit) { p.cuit = c.cuit; await guardar("proveedores", p); }
-          c.proveedor_id = p.id; c.proveedor_nombre = p.nombre;
+          let p = proveedorDe(c.proveedor_id);
+          if (!p) p = await guardar("proveedores", { id: uid(), nombre: c.proveedor_nombre, cuit: c.cuit, tipo: "proveedor", alias: [] });
+          /* Recordar cómo figura el proveedor en el comprobante, para reconocerlo la próxima vez */
+          let cambio = false;
+          if (leido?.cuit && !p.cuit) { p.cuit = soloDig(leido.cuit); cambio = true; }
+          if (leido?.nombre && claveEmpresa(leido.nombre) !== claveEmpresa(p.nombre) && !(p.alias || []).some((a) => claveEmpresa(a.texto ?? a) === claveEmpresa(leido.nombre))) { p.alias = [...(p.alias || []), { texto: leido.nombre, cuit: soloDig(leido.cuit) || null }]; cambio = true; }
+          if (cambio) await guardar("proveedores", p);
+          c.proveedor_id = p.id; c.proveedor_nombre = p.nombre; c.prov_match = "manual";
           /* Recordar cómo figura cada insumo en los comprobantes de este proveedor */
           const cambiados = new Map();
           for (const it of c.items) {
@@ -187,7 +234,8 @@ const Comprobantes = {
           for (const pr of cambiados.values()) await guardar("productos", pr);
           c.estado = "confirmado";
           await guardar("comprobantes", c); close(); refrescar();
-          toast(c.mueve_stock ? `Confirmado: ${c.items.filter((it) => it.producto_id).length} insumo(s) ingresados al galpón` : "Comprobante confirmado");
+          const dif = Object.keys(difFactura(c)).length;
+          toast(dif ? `Confirmado. Atención: ${dif} insumo${dif > 1 ? "s" : ""} con diferencia entre lo recibido y lo facturado.` : c.mueve_stock && c.items.some((it) => it.producto_id) ? `Confirmado: ${c.items.filter((it) => it.producto_id).length} insumo(s) ingresados al galpón` : (c.remitos || []).length ? "Confirmado: coincide con los remitos" : "Comprobante confirmado", dif ? 8000 : 3500);
         } catch (e) { toast(e.message, 7000); } finally { fin(); }
       };
     }, "ancho");
@@ -203,6 +251,7 @@ Vistas.comprobantes = function () {
   const lista = S.d.comprobantes.filter((c) => c.tipo !== "ajuste" && (f.todas || !c.campana || c.campana === S.campana || c.estado === "borrador") && (!f.estado || c.estado === f.estado) && (!f.prov || c.proveedor_id === f.prov) && (!f.tipo || c.tipo === f.tipo))
     .sort((a, b) => (a.estado === "borrador" ? 0 : 1) - (b.estado === "borrador" ? 0 : 1) || (b.fecha || b.creado || "").localeCompare(a.fecha || a.creado || ""));
   const pend = S.d.comprobantes.filter((c) => c.estado === "borrador" && c.tipo !== "ajuste").length;
+  const fact = remitosFacturados();
   let totUSD = 0, sinTC = 0;
   for (const c of S.d.comprobantes) if (c.estado === "confirmado" && c.campana === S.campana && c.tipo !== "remito" && c.tipo !== "ajuste") { const neto = (c.items || []).reduce((a, it) => a + (it.subtotal || 0), 0) * (c.tipo === "nota_credito" ? -1 : 1); const u = aUSD(neto, c.moneda, c.tipo_cambio); if (u == null) { if (neto) sinTC++; } else totUSD += u; }
   el.innerHTML = `<div class="page-in">
@@ -213,7 +262,7 @@ Vistas.comprobantes = function () {
       <div class="field grow"><label class="lbl" for="fP">Proveedor</label><select id="fP"><option value="">Todos</option>${opciones(S.d.proveedores.filter((p) => p.tipo !== "contratista").sort((a, b) => a.nombre.localeCompare(b.nombre)).map((p) => [p.id, p.nombre]), f.prov)}</select></div>
       <label class="row small"><input type="checkbox" id="fTodas" ${f.todas ? "checked" : ""}> Todas las campañas</label></div>
     ${lista.length ? `<div class="card" style="padding:0"><div class="tablewrap"><table class="t"><tr><th>Fecha</th><th>Comprobante</th><th>Proveedor</th><th class="hide-m">Productos</th><th class="right">Total</th><th>Estado</th></tr>
-      ${lista.map((c) => `<tr class="click" data-c="${c.id}"><td class="num">${fechaAR(c.fecha)}</td><td>${esc(nombreTipoComp(c.tipo))} ${esc(c.letra || "")}<div class="small muted num">${esc(c.numero || "")}</div></td><td>${esc(proveedorDe(c.proveedor_id)?.nombre || c.proveedor_nombre || "—")}</td><td class="small hide-m">${(c.items || []).filter((i) => !i.ignorar).slice(0, 3).map((i) => esc(productoDe(i.producto_id)?.nombre || i.descripcion)).join(", ")}${(c.items || []).length > 3 ? "…" : ""}</td><td class="num right">${c.total != null ? fmtM(c.total, c.moneda, 2) : "—"}</td><td>${c.estado === "confirmado" ? '<span class="pill ok">Confirmado</span>' : '<span class="pill warn">Revisar</span>'}</td></tr>`).join("")}</table></div></div>`
+      ${lista.map((c) => `<tr class="click" data-c="${c.id}"><td class="num">${fechaAR(c.fecha)}</td><td>${esc(nombreTipoComp(c.tipo))} ${esc(c.letra || "")}<div class="small muted num">${esc(c.numero || "")}</div></td><td>${esc(proveedorDe(c.proveedor_id)?.nombre || c.proveedor_nombre || "—")}</td><td class="small hide-m">${(c.items || []).filter((i) => !i.ignorar).slice(0, 3).map((i) => esc(productoDe(i.producto_id)?.nombre || i.descripcion)).join(", ")}${(c.items || []).length > 3 ? "…" : ""}</td><td class="num right">${c.total != null ? fmtM(c.total, c.moneda, 2) : "—"}</td><td>${c.estado === "confirmado" ? pillControl(c, fact) || '<span class="pill ok">Confirmado</span>' : '<span class="pill warn">Revisar</span>'}</td></tr>`).join("")}</table></div></div>`
       : `<div class="empty">No hay comprobantes${f.estado || f.prov || f.tipo ? " con ese filtro" : " en esta campaña"}. Sacá una foto de una factura o remito, o subí el PDF de una factura electrónica: se leen el proveedor, los productos, las cantidades y los precios, y vos lo revisás antes de confirmar.</div>`}
   </div>`;
   const $ = (q) => el.querySelector(q);

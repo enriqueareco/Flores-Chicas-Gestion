@@ -217,6 +217,8 @@ async function cargarDatos() {
   Object.keys(S.d).forEach((t, i) => (S.d[t] = r[i]));
   for (const l of S.d.lotes) l.subs = l.subs || [];
   for (const p of S.d.productos) p.alias = p.alias || [];
+  for (const p of S.d.proveedores) p.alias = p.alias || [];
+  for (const c of S.d.comprobantes) c.remitos = c.remitos || [];
 }
 
 /* Selects */
@@ -229,10 +231,46 @@ const opciones = (arr, sel) => arr.map((v) => { const [val, txt] = Array.isArray
 function datalistProductos(id = "dlProd") { return `<datalist id="${id}">${S.d.productos.map((p) => `<option value="${esc(p.nombre)}">`).join("")}</datalist>`; }
 function datalistContratistas(id = "dlCont") { return `<datalist id="${id}">${S.d.proveedores.filter((p) => p.tipo !== "proveedor").map((p) => `<option value="${esc(p.nombre)}">`).join("")}</datalist>`; }
 function buscarProducto(nombre) { const n = norm(nombre); if (!n) return null; return S.d.productos.find((p) => norm(p.nombre) === n) || null; }
+/* Clave para comparar nombres de empresas sin S.A., S.R.L., etc. */
+function claveEmpresa(s) { return norm(s).replace(/\b(s ?a|s ?r ?l|s ?a ?s|s ?a ?c ?i|s ?c ?a|soc anon|sociedad anonima|srl|sa|sas|saci|y cia|hnos|hermanos|e hijos)\b/g, " ").replace(/\s+/g, " ").trim(); }
 function buscarProveedor(nombre, cuit) {
-  const c = soloDig(cuit); if (c.length >= 10) { const p = S.d.proveedores.find((x) => soloDig(x.cuit) === c); if (p) return p; }
-  const n = norm(nombre); if (!n) return null;
-  return S.d.proveedores.find((p) => norm(p.nombre) === n) || S.d.proveedores.find((p) => n.length > 4 && (norm(p.nombre).includes(n) || n.includes(norm(p.nombre)))) || null;
+  const c = soloDig(cuit); if (c.length >= 10) { const p = S.d.proveedores.find((x) => soloDig(x.cuit) === c || (x.alias || []).some((a) => soloDig(a.cuit) === c)); if (p) return p; }
+  const n = claveEmpresa(nombre); if (!n) return null;
+  return S.d.proveedores.find((p) => claveEmpresa(p.nombre) === n || (p.alias || []).some((a) => claveEmpresa(a.texto ?? a) === n)) || S.d.proveedores.find((p) => n.length > 4 && (claveEmpresa(p.nombre).includes(n) || n.includes(claveEmpresa(p.nombre)))) || null;
+}
+/* ---------- Control de remitos contra facturas ---------- */
+const esFactura = (c) => c.tipo === "factura" || c.tipo === "nota_debito" || c.tipo === "nota_credito" || c.tipo === "otro";
+/* Remito id → factura confirmada que lo incluye */
+function remitosFacturados() { const m = new Map(); for (const f of S.d.comprobantes) if (f.estado === "confirmado" && esFactura(f)) for (const r of f.remitos || []) m.set(r, f); return m; }
+const cantItems = (c, acc, sg = 1) => { for (const it of c.items || []) if (it.producto_id && !it.ignorar) acc[it.producto_id] = (acc[it.producto_id] || 0) + sg * (Number(it.cantidad) || 0); return acc; };
+/* Diferencias de una factura contra sus remitos: {producto_id: {recibido, facturado, dif}} con dif != 0 */
+function difFactura(f) {
+  if (!(f.remitos || []).length) return {};
+  const rec = {}; for (const id of f.remitos) { const r = S.d.comprobantes.find((x) => x.id === id && x.estado === "confirmado"); if (r) cantItems(r, rec); }
+  const fac = cantItems(f, {}, f.tipo === "nota_credito" ? -1 : 1);
+  const out = {}; for (const k of new Set([...Object.keys(rec), ...Object.keys(fac)])) { const d = (fac[k] || 0) - (rec[k] || 0); if (Math.abs(d) > 0.001) out[k] = { recibido: rec[k] || 0, facturado: fac[k] || 0, dif: d }; }
+  return out;
+}
+/* Resumen de un proveedor: recibido vs facturado por insumo, remitos sin facturar y facturas con diferencias */
+function controlProveedor(pid, campana) {
+  const comps = S.d.comprobantes.filter((c) => c.proveedor_id === pid && c.estado === "confirmado" && c.tipo !== "ajuste" && (!campana || c.campana === campana));
+  const fact = remitosFacturados(); const porIns = {};
+  const add = (k, campo, q) => ((porIns[k] ??= { recibido: 0, facturado: 0 })[campo] += q);
+  let netoUSD = 0, sinTC = 0;
+  for (const c of comps) {
+    const sg = c.tipo === "nota_credito" ? -1 : 1;
+    for (const it of c.items || []) {
+      if (esFactura(c)) { const u = aUSD((it.subtotal ?? (it.cantidad || 0) * (it.precio_unitario || 0)) * sg, c.moneda, c.tipo_cambio); if (u != null) netoUSD += u; else if (it.precio_unitario) sinTC++; }
+      if (!it.producto_id || it.ignorar) continue;
+      const q = Number(it.cantidad) || 0;
+      if (c.tipo === "remito") add(it.producto_id, "recibido", q);
+      else { add(it.producto_id, "facturado", sg * q); if (c.mueve_stock) add(it.producto_id, "recibido", sg * q); }
+    }
+  }
+  const remitosPend = comps.filter((c) => c.tipo === "remito" && !fact.has(c.id)).sort((a, b) => (a.fecha || "").localeCompare(b.fecha || ""));
+  const facturasDif = comps.filter((c) => esFactura(c) && Object.keys(difFactura(c)).length);
+  const difIns = Object.entries(porIns).filter(([, a]) => Math.abs(a.facturado - a.recibido) > 0.001);
+  return { comps, porIns, difIns, remitosPend, facturasDif, netoUSD, sinTC };
 }
 /* Busca o crea un contratista por nombre. Devuelve {id, nombre} */
 async function asegurarContratista(nombre) {
@@ -280,6 +318,7 @@ function menuMas() {
     <button class="big" data-ir="aplicaciones">Aplicaciones de agroquímicos</button>
     <button class="big" data-ir="comprobantes">Comprobantes</button>
     <button class="big" data-ir="insumos">Insumos y stock del galpón</button>
+    <button class="big" data-ir="proveedores">Proveedores y control de remitos</button>
     <button class="big" data-ir="catalogo">Catálogo de labores y precios</button>
     <button class="big" id="mCuenta">Cuenta y datos</button></div>
     <div class="pie"><button id="mNo">Cerrar</button></div>`, (m, close) => {

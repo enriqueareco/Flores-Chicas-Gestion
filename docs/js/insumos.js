@@ -96,11 +96,14 @@ const Insumos = {
     modal(`<h4>${p ? "Editar" : "Nuevo"} proveedor o contratista</h4>
       <div class="field"><label class="lbl" for="vNom">Nombre o razón social</label><input id="vNom" value="${esc(x.nombre || "")}"></div>
       <div class="row"><div class="field grow"><label class="lbl" for="vCuit">CUIT</label><input id="vCuit" value="${esc(x.cuit || "")}" inputmode="numeric" placeholder="30-12345678-9"></div>
-      <div class="field grow"><label class="lbl" for="vTipo">Es</label><select id="vTipo">${opciones([["proveedor", "Proveedor de insumos"], ["contratista", "Contratista de labores"], ["ambos", "Ambos"]], x.tipo || tipoDef)}</select></div></div>
+      <div class="field grow"><label class="lbl" for="vTipo">Es</label><select id="vTipo">${opciones([["proveedor", "Proveedor de insumos"], ["contratista", "Contratista de labores"], ["ambos", "Insumos y labores"]], x.tipo || tipoDef)}</select></div></div>
       <div class="field"><label class="lbl" for="vTel">Teléfono (para mandar órdenes por WhatsApp)</label><input id="vTel" value="${esc(x.telefono || "")}" inputmode="tel" placeholder="2262 15 123456"></div>
+      ${(x.alias || []).length ? `<div class="field"><span class="lbl">Otros nombres con que figura</span><div class="row">${x.alias.map((a, i) => `<span class="chip">${esc(a.texto ?? a)} <button type="button" class="ghost small danger" data-val="${i}" title="Quitar nombre" style="padding:0 4px">✕</button></span>`).join("")}</div></div>` : ""}
       <div class="field"><label class="lbl" for="vNot">Notas</label><input id="vNot" value="${esc(x.notas || "")}"></div>
       <div class="pie">${p ? '<button class="ghost danger" id="mDel" style="margin-right:auto">Eliminar</button>' : ""}<button id="mNo">Cancelar</button><button class="primary" id="mOk">Guardar</button></div>`, (m, close) => {
       const $ = (q) => m.querySelector(q); $("#mNo").onclick = close;
+      const alias = [...(x.alias || [])];
+      m.querySelectorAll("[data-val]").forEach((b) => (b.onclick = () => { alias.splice(+b.dataset.val, 1); b.closest(".chip").remove(); m.querySelectorAll("[data-val]").forEach((bb, i) => (bb.dataset.val = i)); }));
       if ($("#mDel")) $("#mDel").onclick = async () => {
         const usos = S.d.comprobantes.filter((c) => c.proveedor_id === p.id).length + S.d.labores.filter((l) => l.contratista_id === p.id).length + S.d.ordenes.filter((o) => o.contratista_id === p.id).length;
         if (usos) { toast(`No se puede eliminar: tiene ${usos} comprobantes, labores u órdenes asociadas.`, 5000); return; }
@@ -108,7 +111,7 @@ const Insumos = {
       };
       $("#mOk").onclick = async () => {
         const nombre = $("#vNom").value.trim(); if (!nombre) { $("#vNom").focus(); return; }
-        const n = { ...x, id: x.id || uid(), nombre, cuit: soloDig($("#vCuit").value) || null, tipo: $("#vTipo").value, telefono: $("#vTel").value.trim() || null, notas: $("#vNot").value.trim() || null };
+        const n = { ...x, id: x.id || uid(), nombre, cuit: soloDig($("#vCuit").value) || null, tipo: $("#vTipo").value, alias, telefono: $("#vTel").value.trim() || null, notas: $("#vNot").value.trim() || null };
         try { await guardar("proveedores", n); close(); onSave ? onSave(n) : refrescar(); } catch (e) { toast(e.message, 6000); }
       };
     });
@@ -137,18 +140,13 @@ Vistas.insumos = function () {
       ${prods.map((p) => { const h = hayDe(p.id); const s = st[p.id]; const pp = pr[p.id]; return `<tr class="click" data-p="${p.id}"><td><b>${esc(p.nombre)}</b>${p.principio_activo ? `<div class="small muted">${esc(p.principio_activo)} ${esc(p.concentracion || "")}</div>` : ""}${(p.alias || []).length ? `<div class="small muted">También: ${(p.alias || []).slice(0, 3).map((a) => esc(a.texto ?? a)).join(", ")}${p.alias.length > 3 ? "…" : ""}</div>` : ""}</td><td class="small hide-m">${esc(p.tipo || "")}</td><td class="num right">${fmt(h, 1)} ${esc(p.unidad)}${h < -1e-9 ? '<div><span class="pill bad">negativo</span></div>' : ""}</td><td class="num right hide-m">${s?.ordenes ? fmt(s.ordenes, 1) : ""}</td><td class="num right">${pp ? `US$ ${fmt(pp.usd, 2)}/${esc(p.unidad)}` : '<span class="muted">—</span>'}</td><td class="num right hide-m">${pp && h > 0 ? fmtM(h * pp.usd, "USD") : ""}</td></tr>`; }).join("")}</table></div></div>
       <div class="small muted">Entra stock al confirmar remitos y facturas; sale al cargar labores. Tocá un insumo para ver sus movimientos o ajustar el stock contado en el galpón.</div>`
       : `<div class="empty">${S.d.productos.length ? "Ningún insumo coincide con el filtro." : "Cargá los insumos que usás (herbicidas, fertilizantes, semillas…). Quedan fijos en la lista y se eligen al cargar labores. También se agregan al confirmar remitos."}</div>`}
-    <div class="card"><div class="row" style="justify-content:space-between"><h2>Proveedores y contratistas</h2><button id="bNV">+ Proveedor o contratista</button></div>
-      ${provs.length ? `<div class="tablewrap"><table class="t"><tr><th>Nombre</th><th class="hide-m">CUIT</th><th>Es</th><th class="hide-m">Teléfono</th><th class="right">Comprob.</th><th class="right">Labores</th></tr>
-      ${provs.map((p) => `<tr class="click" data-pv="${p.id}"><td><b>${esc(p.nombre)}</b></td><td class="num small hide-m">${esc(p.cuit || "")}</td><td class="small">${{ proveedor: "Proveedor", contratista: "Contratista", ambos: "Ambos" }[p.tipo] || ""}</td><td class="small hide-m">${esc(p.telefono || "")}</td><td class="num right">${nComp(p.id) || ""}</td><td class="num right">${nLab(p.id) || ""}</td></tr>`).join("")}</table></div>`
-      : `<div class="empty">Se agregan solos al leer comprobantes y al cargar labores con contratista.</div>`}
-    </div></div>`;
+    <div class="row"><button class="ghost" data-ir="proveedores">Ver proveedores y control de remitos →</button></div></div>`;
   const $ = (q) => el.querySelector(q);
   $("#bNP").onclick = () => Insumos.formProducto(null);
   $("#bRem").onclick = () => document.getElementById("fFoto").click();
-  $("#bNV").onclick = () => Insumos.formProveedor(null);
+  el.querySelectorAll("[data-ir]").forEach((b) => (b.onclick = () => irA(b.dataset.ir)));
   $("#bCsvI").onclick = () => descargar(`stock_galpon_${hoy()}.csv`, csv([["Insumo", "Tipo", "Principio activo", "Concentración", "Unidad", "Stock", "En órdenes abiertas", "Precio US$", "Valor US$"], ...S.d.productos.map((p) => { const h = hayDe(p.id); const pp = pr[p.id]; return [p.nombre, p.tipo, p.principio_activo, p.concentracion, p.unidad, +h.toFixed(3), st[p.id]?.ordenes || 0, pp ? +pp.usd.toFixed(4) : null, pp && h > 0 ? +(h * pp.usd).toFixed(2) : null]; })]), "text/csv");
   el.querySelectorAll("[data-p]").forEach((tr) => (tr.onclick = () => Insumos.detalle(productoDe(tr.dataset.p))));
-  el.querySelectorAll("tr[data-pv]").forEach((tr) => (tr.onclick = () => Insumos.formProveedor(proveedorDe(tr.dataset.pv))));
   $("#fQ").oninput = (e) => { f.q = e.target.value; clearTimeout(S._tq); S._tq = setTimeout(() => { Vistas.insumos(); const i = document.getElementById("fQ"); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }, 300); };
   $("#fT").onchange = (e) => { f.tipo = e.target.value; Vistas.insumos(); };
   $("#fS").onchange = (e) => { f.soloStock = e.target.checked; Vistas.insumos(); };
