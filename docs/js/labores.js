@@ -1,5 +1,13 @@
 "use strict";
 /* ============ Labores, aplicaciones y dictado ============ */
+/* La campaña de una siembra: desde abril se siembra para la campaña que empieza ese año (fina, pasturas, gruesa) */
+function campanaDeSiembra(f) { if (!f) return S.campana; const d = new Date(f + "T12:00"); const y = d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1; return `${y}/${String(y + 1).slice(2)}`; }
+/* Adivina el cultivo por el nombre de la semilla elegida (ej. "Maíz DK 72-10") */
+function cultivoPorSemilla(insumos) {
+  const claves = Object.keys(CULTIVOS).filter((c) => !["Otro", "Barbecho", "Campo natural", "Soja 2da", "Promoción de ryegrass", "Maíz de pastoreo", "Verdeo"].includes(c)).sort((a, b) => b.length - a.length);
+  for (const i of insumos) { const p = productoDe(i.producto_id); if (!p || p.tipo !== "semilla") continue; const n = norm(p.nombre + " " + (p.principio_activo || "")); const c = claves.find((k) => n.includes(norm(k))); if (c) return { cultivo: c, semilla: p }; }
+  const p = insumos.map((i) => productoDe(i.producto_id)).find((p) => p?.tipo === "semilla"); return p ? { cultivo: null, semilla: p } : null;
+}
 const tipoProdPorLabor = (t) => ({ Pulverización: "herbicida", Fertilización: "fertilizante", Siembra: "semilla" }[t] || "otro");
 const unidadPorTipo = (t) => ({ Pulverización: "L/ha", Fertilización: "kg/ha", Siembra: "kg/ha" }[t] || "L/ha");
 const COND = [["hora", "Hora", "time"], ["viento_kmh", "Viento km/h", "decimal"], ["direccion_viento", "Dirección", "text"], ["temperatura", "Temp. °C", "decimal"], ["humedad", "Humedad %", "decimal"], ["caudal_lha", "Caudal L/ha", "decimal"], ["receta", "N° receta agronómica", "text"], ["ing_agronomo", "Ing. agrónomo", "text"], ["aplicador", "Aplicador / equipo", "text"]];
@@ -28,6 +36,11 @@ const Labores = {
       <div class="field"><label class="lbl" for="lbCont">Contratista o quien la hizo</label><input id="lbCont" list="dlCont" value="${esc(x.contratista || "")}" placeholder="Ej. Martínez Servicios, personal propio">${datalistContratistas()}</div>
       <div class="row" style="justify-content:space-between"><h2>Insumos</h2><button type="button" class="small" id="lbAddI">+ Insumo</button></div>
       <div id="lbIns" class="col" style="gap:6px"></div>
+      <div id="lbSiemBox" class="col" style="gap:8px"><h2>Qué se sembró</h2>
+        <div class="row"><div class="field grow"><label class="lbl" for="lbCult">Cultivo</label><select id="lbCult"><option value="">Elegir cultivo…</option>${opciones(Object.keys(CULTIVOS))}</select></div>
+          <div class="field grow"><label class="lbl" for="lbVar">Híbrido / variedad</label><input id="lbVar" list="dlVar" placeholder="Ej. DK 72-10"><datalist id="dlVar">${[...new Set(S.d.siembras.map((y) => y.hibrido).filter(Boolean))].map((h) => `<option value="${esc(h)}">`).join("")}</datalist></div>
+          <div class="field"><label class="lbl" for="lbCamp">Campaña</label><select id="lbCamp">${opciones(campanas())}</select></div></div>
+        <div class="small muted">Al guardar, el cultivo queda cargado en la campaña del lote con esta fecha de siembra.</div></div>
       <div id="lbCondBox" class="col" style="gap:8px"><h2>Condiciones de aplicación</h2>
         <div class="row">${COND.map(([k, t, tp]) => `<div class="field" style="${k === "ing_agronomo" || k === "aplicador" ? "flex:1;min-width:150px" : ""}"><label class="lbl" for="cd_${k}">${t}</label><input id="cd_${k}" ${tp === "time" ? 'type="time"' : tp === "decimal" ? 'inputmode="decimal" style="width:90px"' : ""} value="${esc(cond[k] ?? "")}"></div>`).join("")}</div></div>
       <h2>Precio de la labor</h2><div id="lbPrecio" class="col" style="gap:8px"></div>
@@ -38,7 +51,29 @@ const Labores = {
       const tipoSel = () => laborTipoDe($("#lbTipo").value);
       const ed = editorInsumos($("#lbIns"), insumos, { ha, tipoDef: () => tipoProdPorLabor(tipoSel()?.categoria) });
       const subs = () => { const l = loteDe($("#lbLote").value); $("#lbSubF").hidden = !l?.subs?.length; $("#lbSub").innerHTML = opcionesSubs(l, x.sub_id); };
-      const verCond = () => { $("#lbCondBox").hidden = (tipoSel()?.categoria || x.tipo) !== "Pulverización"; };
+      const esSiembra = () => (tipoSel()?.categoria || x.tipo) === "Siembra";
+      const siemPrev = x.condiciones?.siembra_id ? S.d.siembras.find((y) => y.id === x.condiciones.siembra_id) : null;
+      if (siemPrev) { $("#lbCult").value = siemPrev.cultivo; $("#lbVar").value = siemPrev.hibrido || ""; }
+      let campTocada = !!siemPrev; $("#lbCamp").value = siemPrev?.campana || campanaDeSiembra($("#lbFecha").value);
+      $("#lbCamp").onchange = () => (campTocada = true);
+      let cultTocado = !!siemPrev, varTocada = !!siemPrev;
+      $("#lbCult").onchange = () => (cultTocado = true); $("#lbVar").oninput = () => (varTocada = true);
+      /* Propone cultivo y variedad según la semilla y lo que ya tiene el lote en la campaña */
+      const sugerirSiembra = () => {
+        if (!esSiembra()) return;
+        if (!campTocada) $("#lbCamp").value = campanaDeSiembra($("#lbFecha").value);
+        const g = cultivoPorSemilla(insumos);
+        if (!varTocada && g?.semilla) { const sin = g.cultivo ? g.semilla.nombre.replace(new RegExp(g.cultivo.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[aeiou]/g, "[aeiouáéíóú]"), "i"), "").trim() : ""; $("#lbVar").value = sin || g.semilla.nombre; }
+        if (!cultTocado) {
+          const l = loteDe($("#lbLote").value); const sub = $("#lbSub").value || undefined;
+          let c = g?.cultivo || null;
+          const ya = l ? cultivosCargados(l, sub, $("#lbCamp").value) : [];
+          if (!c && ya.length === 1 && !ya[0].fecha) c = ya[0].cultivo;
+          if (c === "Soja" && ya.some((y) => y.cultivo !== "Soja" && !PERENNES.has(y.cultivo))) c = "Soja 2da";
+          if (c) $("#lbCult").value = c;
+        }
+      };
+      const verCond = () => { $("#lbCondBox").hidden = (tipoSel()?.categoria || x.tipo) !== "Pulverización"; $("#lbSiemBox").hidden = !esSiembra(); sugerirSiembra(); };
       const pintarPrecio = () => {
         const t = tipoSel(); const pc = precioCatalogo(t, $("#lbFecha").value || hoy()); const box = $("#lbPrecio");
         const tot = (p, mon) => (p != null && ha() ? ` · total ${fmtM(p * ha(), mon)}` : "");
@@ -68,7 +103,8 @@ const Labores = {
       $("#lbLote").onchange = () => { x.sub_id = null; subs(); $("#lbHa").value = (haUbic($("#lbLote").value, null) || 0).toFixed(1); ed.refrescarTotales(); pintarPrecio(); };
       $("#lbSub").onchange = () => { $("#lbHa").value = (haUbic($("#lbLote").value, $("#lbSub").value || null) || 0).toFixed(1); ed.refrescarTotales(); pintarPrecio(); };
       $("#lbHa").oninput = () => { ed.refrescarTotales(); pintarPrecio(); };
-      $("#lbFecha").onchange = pintarPrecio;
+      $("#lbFecha").onchange = () => { pintarPrecio(); sugerirSiembra(); };
+      $("#lbIns").addEventListener("change", () => setTimeout(sugerirSiembra, 0));
       $("#lbTipo").onchange = () => {
         if ($("#lbTipo").value === "__nueva") {
           $("#lbTipo").value = x.labor_tipo_id || "";
@@ -78,11 +114,13 @@ const Labores = {
         x.labor_tipo_id = $("#lbTipo").value || null; aplicarReceta(tipoSel()); verCond(); pintarPrecio();
       };
       if (!lab && !insumos.length && tipoSel()) aplicarReceta(tipoSel());
+      sugerirSiembra();
       $("#lbAddI").onclick = () => ed.agregar();
       $("#mNo").onclick = close;
       if ($("#lbDel")) $("#lbDel").onclick = async () => {
-        if (!(await confirmar("¿Eliminar esta labor? Los insumos usados vuelven al stock."))) return;
+        if (!(await confirmar(`¿Eliminar esta labor? Los insumos usados vuelven al stock.${siemPrev ? ` También se quita ${esc(siemPrev.cultivo)} de la campaña ${esc(siemPrev.campana)}.` : ""}`))) return;
         if (orden) { orden.estado = "pendiente"; orden.labor_id = null; await guardar("ordenes", orden); }
+        if (siemPrev) await borrar("siembras", siemPrev.id);
         await borrar("labores", lab.id); close(); afterSave();
       };
       const afterSave = () => { dibujarLotes(); if (S.vista === "mapa") render(); else refrescar(); };
@@ -91,6 +129,7 @@ const Labores = {
         const t = tipoSel();
         if (!t && !(lab && x.tipo)) { toast("Elegí qué labor es."); $("#lbTipo").focus(); return; }
         if (!$("#lbFecha").value) { toast("Falta la fecha."); return; }
+        if (esSiembra() && !$("#lbCult").value) { toast("Elegí qué cultivo se sembró."); $("#lbCult").focus(); return; }
         const r = ed.resultado(); if (r.error) { toast(r.error, 6000); return; }
         const fin = cargando("Guardando…");
         try {
@@ -99,7 +138,20 @@ const Labores = {
           const c = {}; if (categoria === "Pulverización") for (const [k, , tp] of COND) { const v = $("#cd_" + k).value.trim(); if (v) c[k] = tp === "decimal" ? num(v) : v; }
           const pc = precioCatalogo(t, fecha);
           const precio = manual ? { costo_ha: x.costo_ha, moneda: x.moneda || "USD", costo_estado: x.costo_ha != null ? "acordado" : "a_definir" } : pc ? { costo_ha: pc.precio, moneda: pc.moneda, costo_estado: "catalogo" } : { costo_ha: null, moneda: "USD", costo_estado: "a_definir" };
-          const n = { ...x, id: x.id || uid(), lote_id: $("#lbLote").value, sub_id: $("#lbSub").value || null, fecha, campana: campanaDeFecha(fecha), labor_tipo_id: t?.id || null, tipo: categoria, contratista_id: ct.id, contratista: ct.nombre, superficie_ha: ha() || null, ...precio, insumos: r.insumos, condiciones: c, notas: $("#lbNot").value.trim() || null };
+          /* Siembra: cargar o actualizar el cultivo de la campaña */
+          let siemId = null, campana = campanaDeFecha(fecha);
+          if (categoria === "Siembra") {
+            const loteId = $("#lbLote").value, subId = $("#lbSub").value || null, camp = $("#lbCamp").value, cult = $("#lbCult").value;
+            campana = camp;
+            let sm = siemPrev && siemPrev.lote_id === loteId ? siemPrev : null;
+            /* Si el cultivo ya estaba cargado a mano en esa campaña sin fecha, se completa ese en vez de duplicarlo */
+            if (!sm) sm = S.d.siembras.find((y) => y.lote_id === loteId && (y.sub_id || null) === subId && y.campana === camp && y.cultivo === cult && !y.fecha) || null;
+            if (siemPrev && siemPrev !== sm) await borrar("siembras", siemPrev.id);
+            sm = { ...(sm || {}), id: sm?.id || uid(), lote_id: loteId, sub_id: subId, campana: camp, cultivo: cult, hibrido: $("#lbVar").value.trim() || null, fecha };
+            await guardar("siembras", sm); siemId = sm.id;
+            c.siembra_id = siemId;
+          } else if (siemPrev) await borrar("siembras", siemPrev.id);
+          const n = { ...x, id: x.id || uid(), lote_id: $("#lbLote").value, sub_id: $("#lbSub").value || null, fecha, campana, labor_tipo_id: t?.id || null, tipo: categoria, contratista_id: ct.id, contratista: ct.nombre, superficie_ha: ha() || null, ...precio, insumos: r.insumos, condiciones: c, notas: $("#lbNot").value.trim() || null };
           delete n._dudas;
           await guardar("labores", n);
           if (orden && orden.estado !== "realizada") { orden.estado = "realizada"; orden.labor_id = n.id; await guardar("ordenes", orden); }
