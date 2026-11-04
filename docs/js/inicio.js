@@ -74,6 +74,6 @@ Vistas.cargar = function () {
   document.addEventListener("visibilitychange", async () => {
     if (document.hidden) { oculto = Date.now(); return; }
     if (DB.modo !== "nube" || Date.now() - oculto < 60000 || document.querySelector(".modal-bg") || S.drawing || S.editing) return;
-    try { await cargarDatos(); dibujarLotes(); refrescar(); } catch (e) {}
+    try { await DB.renovar(); await cargarDatos(); dibujarLotes(); refrescar(); } catch (e) {}
   });
 })();

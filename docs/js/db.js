@@ -54,6 +54,8 @@ const DB = {
       this.sb = window.supabase.createClient(url, String(c.SUPABASE_ANON_KEY).trim());
       const { data } = await this.sb.auth.getSession();
       this.usuario = data.session?.user || null;
+      /* Si la sesión guardada ya venció (la compu estuvo apagada o en reposo), renovarla antes de empezar */
+      if (data.session && (data.session.expires_at || 0) * 1000 < Date.now() + 60000) await this.renovar();
     } else {
       await Local.abrir();
       this.usuario = { email: "modo prueba" };
@@ -62,6 +64,7 @@ const DB = {
   /* Devuelve false si falta correr la actualización de la base (migracion_02.sql) */
   async esquemaAlDia() {
     if (this.modo !== "nube") return true;
+    await this._r(() => this.sb.from("lotes").select("id").limit(1));
     const r = await Promise.all([this.sb.from("labores_tipo").select("id").limit(1), this.sb.from("productos").select("alias").limit(1), this.sb.from("labores").select("labor_tipo_id").limit(1), this.sb.from("proveedores").select("alias").limit(1), this.sb.from("comprobantes").select("remitos").limit(1)]);
     return r.every((x) => !x.error);
   },
@@ -75,13 +78,28 @@ const DB = {
     if (error) throw error;
   },
   async cambiarClave(clave) { const { error } = await this.sb.auth.updateUser({ password: clave }); if (error) throw error; },
+  /* Renueva el permiso de acceso. Devuelve false si hay que volver a ingresar. */
+  async renovar() {
+    try { const { data, error } = await this.sb.auth.refreshSession(); if (error || !data?.session) { this.usuario = null; return false; } this.usuario = data.session.user; return true; }
+    catch (e) { return false; }
+  },
+  /* Ejecuta una consulta y, si el permiso venció, lo renueva (o pide ingresar de nuevo) y la repite */
+  async _r(fn) {
+    let r = await fn();
+    const vencido = (x) => x?.error && (/jwt|token|expired|unauthorized/i.test(x.error.message || "") || x.error.status === 401 || x.error.statusCode === "401" || x.error.context?.status === 401);
+    if (vencido(r)) {
+      if (!(await this.renovar())) { if (typeof pantallaIngreso === "function") await pantallaIngreso(); else throw new Error("Tu sesión venció. Recargá la página e ingresá de nuevo."); }
+      r = await fn();
+    }
+    return r;
+  },
   async salir() { if (this.sb) await this.sb.auth.signOut(); this.usuario = null; },
 
   async listar(t) {
     if (this.modo === "local") return Local.db ? Local.req(Local.st(t, "readonly").getAll()) : [];
     let out = [], i = 0;
     for (;;) {
-      const { data, error } = await this.sb.from(t).select("*").range(i, i + 999);
+      const { data, error } = await this._r(() => this.sb.from(t).select("*").range(i, i + 999));
       if (error) throw new Error(`No pude leer ${t}: ${error.message}`);
       out = out.concat(data);
       if (data.length < 1000) break;
@@ -95,7 +113,7 @@ const DB = {
     if (TABLAS[t].includes("creado_por") && !fila.creado_por) fila.creado_por = this.usuario?.email || null;
     const f = limpiarFila(t, fila);
     if (this.modo === "local") { await Local.req(Local.st(t, "readwrite").put(JSON.parse(JSON.stringify(f)))); return fila; }
-    const { error } = await this.sb.from(t).upsert(f);
+    const { error } = await this._r(() => this.sb.from(t).upsert(f));
     if (error) throw new Error(`No se pudo guardar: ${error.message}`);
     return fila;
   },
@@ -103,39 +121,39 @@ const DB = {
     if (this.modo === "local") { for (const f of filas) await this.guardar(t, f); return; }
     for (const f of filas) { if (!f.id) f.id = nuevoId(); if (!f.creado) f.creado = new Date().toISOString(); }
     for (let i = 0; i < filas.length; i += 200) {
-      const { error } = await this.sb.from(t).upsert(filas.slice(i, i + 200).map((f) => limpiarFila(t, f)));
+      const { error } = await this._r(() => this.sb.from(t).upsert(filas.slice(i, i + 200).map((f) => limpiarFila(t, f))));
       if (error) throw new Error(`No se pudo guardar: ${error.message}`);
     }
   },
   async borrar(t, id) {
     if (this.modo === "local") return Local.req(Local.st(t, "readwrite").delete(id));
-    const { error } = await this.sb.from(t).delete().eq("id", id);
+    const { error } = await this._r(() => this.sb.from(t).delete().eq("id", id));
     if (error) throw new Error(`No se pudo borrar: ${error.message}`);
   },
   async subir(bucket, path, blob) {
     if (this.modo === "local") { await Local.req(Local.st("archivos", "readwrite").put(blob, bucket + "/" + path)); return path; }
-    const { error } = await this.sb.storage.from(bucket).upload(path, blob, { upsert: true, contentType: blob.type || "application/octet-stream" });
+    const { error } = await this._r(() => this.sb.storage.from(bucket).upload(path, blob, { upsert: true, contentType: blob.type || "application/octet-stream" }));
     if (error) throw new Error("No se pudo subir el archivo: " + error.message);
     return path;
   },
   async bajar(bucket, path) {
     if (this.modo === "local") return Local.req(Local.st("archivos", "readonly").get(bucket + "/" + path));
-    const { data, error } = await this.sb.storage.from(bucket).download(path);
+    const { data, error } = await this._r(() => this.sb.storage.from(bucket).download(path));
     if (error) throw new Error("No se pudo descargar el archivo.");
     return data;
   },
   async url(bucket, path) {
     if (this.modo === "local") { const b = await this.bajar(bucket, path); return b ? URL.createObjectURL(b) : null; }
-    const { data } = await this.sb.storage.from(bucket).createSignedUrl(path, 3600);
+    const { data } = await this._r(() => this.sb.storage.from(bucket).createSignedUrl(path, 3600));
     return data?.signedUrl || null;
   },
   async borrarArchivo(bucket, path) {
     if (this.modo === "local") return Local.req(Local.st("archivos", "readwrite").delete(bucket + "/" + path));
-    await this.sb.storage.from(bucket).remove([path]);
+    await this._r(() => this.sb.storage.from(bucket).remove([path]));
   },
   async ia(accion, datos) {
     if (this.modo === "local") throw new Error("La lectura automática funciona cuando la app está conectada a Supabase con la clave de Claude. En modo prueba cargá los datos a mano.");
-    const { data, error } = await this.sb.functions.invoke("ia", { body: { accion, ...datos } });
+    const { data, error } = await this._r(() => this.sb.functions.invoke("ia", { body: { accion, ...datos } }));
     if (error) {
       let msg = error.message;
       try { const j = await error.context.json(); if (j.error) msg = j.error; } catch (e) {}
