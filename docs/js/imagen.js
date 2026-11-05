@@ -56,8 +56,17 @@ const Imagen = {
     const bb = porSector ? turf.bbox({ type: "FeatureCollection", features: delSector.map((v) => ({ type: "Feature", properties: {}, geometry: v.geom })) }) : bl;
     const sx0 = this.px(bb[2], 0) - this.px(bb[0], 0), sy0 = this.py(bb[1], 0) - this.py(bb[3], 0);
     let z = Math.log2(porSector ? Math.min((W * 0.9) / sx0, (Hm * 0.86) / sy0) : Math.min((W * 0.4) / sx0, (Hm * 0.4) / sy0));
+    if (porSector) z += 0.7; /* más cerca que el sector completo */
     z = Math.max(10, Math.min(17.5, z));
-    const cx = (this.px(bb[0], z) + this.px(bb[2], z)) / 2, cy = (this.py(bb[1], z) + this.py(bb[3], z)) / 2;
+    let cx = (this.px(bb[0], z) + this.px(bb[2], z)) / 2, cy = (this.py(bb[1], z) + this.py(bb[3], z)) / 2;
+    if (porSector) {
+      /* Se corre el centro hacia el lote para que quede bien adentro de la foto */
+      const lx0 = this.px(bl[0], z), lx1 = this.px(bl[2], z), ly0 = this.py(bl[3], z), ly1 = this.py(bl[1], z);
+      cx = cx * 0.45 + ((lx0 + lx1) / 2) * 0.55; cy = cy * 0.45 + ((ly0 + ly1) / 2) * 0.55;
+      const mx = W * 0.18, my = Hm * 0.18;
+      if (lx0 - (cx - W / 2) < mx) cx = lx0 - mx + W / 2; if ((cx + W / 2) - lx1 < mx) cx = lx1 + mx - W / 2;
+      if (ly0 - (cy - Hm / 2) < my) cy = ly0 - my + Hm / 2; if ((cy + Hm / 2) - ly1 < my) cy = ly1 + my - Hm / 2;
+    }
     const ox = cx - W / 2, oy = cy - Hm / 2;
     const cv = document.createElement("canvas"); cv.width = W; cv.height = H; const ctx = cv.getContext("2d");
     ctx.fillStyle = "#2a3328"; ctx.fillRect(0, 0, W, H);
@@ -72,7 +81,8 @@ const Imagen = {
     this.trazar(ctx, l.geom, z, ox, oy);
     ctx.fillStyle = sub ? "rgba(242,193,78,.14)" : porSector ? "rgba(242,193,78,.45)" : "rgba(242,193,78,.28)"; ctx.fill("evenodd");
     ctx.lineWidth = porSector ? 10 : 7; ctx.strokeStyle = "rgba(0,0,0,.6)"; ctx.stroke(); ctx.lineWidth = porSector ? 6 : 4; ctx.strokeStyle = "#F2C14E"; ctx.stroke();
-    for (const s of sub || []) { this.trazar(ctx, s.geom, z, ox, oy); ctx.fillStyle = "rgba(242,193,78,.42)"; ctx.fill("evenodd"); ctx.setLineDash([12, 8]); ctx.lineWidth = 3; ctx.strokeStyle = "#FFF3C4"; ctx.stroke(); ctx.setLineDash([]); }
+    for (const s of sub || []) { this.trazar(ctx, s.geom, z, ox, oy); ctx.fillStyle = "rgba(255,196,0,.62)"; ctx.fill("evenodd"); ctx.lineJoin = "round"; ctx.lineWidth = 9; ctx.strokeStyle = "rgba(0,0,0,.7)"; ctx.stroke(); ctx.lineWidth = 5; ctx.strokeStyle = "#FFD23F"; ctx.stroke(); }
+    if (sub) { const otros = l.subs.filter((s) => !sub.includes(s)); for (const s of otros) { this.trazar(ctx, s.geom, z, ox, oy); ctx.fillStyle = "rgba(0,0,0,.28)"; ctx.fill("evenodd"); ctx.setLineDash([8, 6]); ctx.lineWidth = 2; ctx.strokeStyle = "rgba(255,255,255,.8)"; ctx.stroke(); ctx.setLineDash([]); } }
     /* Caminos y puntos */
     for (const x of S.d.infra.filter((x) => x.geom?.type === "LineString")) {
       const d = INFRA[x.tipo]; if (!d) continue;
@@ -81,7 +91,8 @@ const Imagen = {
       ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.setLineDash([]); ctx.lineWidth = principal ? 15 : 11; ctx.strokeStyle = "rgba(20,14,6,.9)"; ctx.stroke();
       ctx.setLineDash(principal ? [] : [20, 13]); ctx.lineWidth = principal ? 9 : 6; ctx.strokeStyle = principal ? "#FFE08A" : "#FFF6DA"; ctx.stroke(); ctx.setLineDash([]);
     }
-    for (const x of S.d.infra.filter((x) => x.geom?.type === "Point")) {
+    const ordenPunto = { molino: 9, manga: 5 };
+    for (const x of S.d.infra.filter((x) => x.geom?.type === "Point").sort((a, b) => (ordenPunto[a.tipo] || 0) - (ordenPunto[b.tipo] || 0))) {
       const d = INFRA[x.tipo]; if (!d) continue;
       const X = this.px(x.geom.coordinates[0], z) - ox, Y = this.py(x.geom.coordinates[1], z) - oy; if (X < -20 || Y < -20 || X > W + 20 || Y > Hm + 20) continue;
       ctx.beginPath(); ctx.arc(X, Y, 21, 0, Math.PI * 2); ctx.fillStyle = "rgba(0,0,0,.45)"; ctx.fill();
@@ -95,7 +106,7 @@ const Imagen = {
     const corto = (v) => { const n = v.nombre.trim(); return porSector && sector && norm(n).endsWith(norm(sector)) ? n.slice(0, n.length - sector.length).trim() || n : n; };
     const tamV = porSector && delSector.length > 25 ? 12 : porSector && delSector.length > 12 ? 13 : 16;
     for (const v of vecinos) { const propio = !porSector || sectorDe(v) === sector; const [X, Y] = centro(v.geom); if (X > 30 && X < W - 30 && Y > 15 && Y < Hm - 15) this.etiqueta(ctx, corto(v), X, Y, propio ? tamV : tamV - 2, propio ? 700 : 500, propio ? "#ffffff" : "rgba(255,255,255,.7)"); }
-    for (const s of sub || []) { const [X, Y] = centro(s.geom); this.etiqueta(ctx, s.nombre, X, Y + 28, 18, 700, "#FFF3C4"); }
+    for (const s of sub || []) { const [X, Y] = centro(s.geom); this.etiqueta(ctx, s.nombre, X, Y + 30, 20, 800, "#FFFFFF"); }
     const [LX, LY] = centro(l.geom);
     const anchoLote = this.px(bl[2], z) - this.px(bl[0], z);
     /* Si el lote se ve chico dentro del sector, un anillo alrededor para encontrarlo enseguida */
@@ -105,7 +116,7 @@ const Imagen = {
     if (porSector) { ctx.font = "800 22px Archivo, Arial, sans-serif"; ctx.textAlign = "left"; ctx.textBaseline = "middle"; ctx.lineWidth = 6; ctx.strokeStyle = "rgba(0,0,0,.85)"; ctx.lineJoin = "round"; ctx.strokeText(sector.toUpperCase(), 22, 34); ctx.fillStyle = "#fff"; ctx.fillText(sector.toUpperCase(), 22, 34); }
     ctx.restore();
     /* Leyenda de molinos, mangas y caminos que aparecen */
-    const tipos = [...new Set(S.d.infra.filter((x) => { const c = x.geom?.type === "Point" ? [x.geom.coordinates] : x.geom?.coordinates || []; return c.some(([lon, lat]) => { const X = this.px(lon, z) - ox, Y = this.py(lat, z) - oy; return X >= 0 && Y >= 0 && X <= W && Y <= Hm; }); }).map((x) => x.tipo))].filter((k) => INFRA[k]);
+    const tipos = [...new Set(S.d.infra.filter((x) => { const v = x.geom?.type === "Point" ? [x.geom.coordinates] : x.geom?.coordinates || []; const c = v.length < 2 ? v : v.slice(1).flatMap((p, i) => Array.from({ length: 21 }, (_, k) => [v[i][0] + (p[0] - v[i][0]) * k / 20, v[i][1] + (p[1] - v[i][1]) * k / 20])); return c.some(([lon, lat]) => { const X = this.px(lon, z) - ox, Y = this.py(lat, z) - oy; return X >= 0 && Y >= 0 && X <= W && Y <= Hm; }); }).map((x) => x.tipo))].filter((k) => INFRA[k]);
     if (tipos.length) {
       const lh = 30, bw = 232, bh = 14 + tipos.length * lh, bx = W - bw - 16, by = Hm - bh - 16;
       ctx.fillStyle = "rgba(20,26,22,.82)"; ctx.fillRect(bx, by, bw, bh);

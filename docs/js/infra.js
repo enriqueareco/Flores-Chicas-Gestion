@@ -28,7 +28,7 @@ const Infra = {
     for (const x of S.d.infra) {
       const d = INFRA[x.tipo]; if (!d || !x.geom) continue;
       if (x.geom.type === "Point") {
-        const m = L.marker([x.geom.coordinates[1], x.geom.coordinates[0]], { icon: this.icono(x.tipo), keyboard: false, zIndexOffset: 500 }).bindTooltip(esc(infraNombre(x)), { direction: "top", offset: [0, -10] });
+        const m = L.marker([x.geom.coordinates[1], x.geom.coordinates[0]], { icon: this.icono(x.tipo), keyboard: false, zIndexOffset: x.tipo === "molino" ? 800 : 500 }).bindTooltip(esc(infraNombre(x)), { direction: "top", offset: [0, -10] });
         m.on("click", (ev) => clic(ev, x)); m.addTo(this.grupo); this.capas.set(x.id, m);
       } else if (x.geom.type === "LineString") {
         const ll = x.geom.coordinates.map((c) => [c[1], c[0]]);
