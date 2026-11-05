@@ -76,6 +76,12 @@ Mientras no se corra el paso 1, la app muestra un aviso rojo y no deja guardar e
 1. En Supabase, entrá a **SQL Editor → New query**, pegá todo `supabase/migracion_03.sql` y tocá **Run**. Este archivo ya incluye la actualización 2, así que si no corriste la 2 alcanza con este.
 2. En **Edge Functions → ia → Code**, reemplazá el código por el de `supabase/functions/ia/index.ts` y tocá **Deploy**.
 
+**Actualización 4 (molinos, mangas y caminos en el mapa)**
+
+1. En Supabase, entrá a **SQL Editor → New query**, pegá todo `supabase/migracion_04.sql` y tocá **Run**. Este archivo incluye las actualizaciones 2 y 3.
+
+No hace falta tocar la función de IA en esta actualización.
+
 ## Cómo se usa
 
 - **Cargar (botón +):** es la pantalla de inicio en el teléfono. Desde ahí sacás fotos de comprobantes, subís facturas en PDF, dictás labores y armás órdenes de trabajo.
@@ -94,6 +100,8 @@ Mientras no se corra el paso 1, la app muestra un aviso rojo y no deja guardar e
 - **Órdenes de trabajo:**
   - Se imprimen o se mandan por WhatsApp. Si cargás el teléfono del contratista, se abre el chat con él.
   - Al marcarla realizada, la orden se convierte en una labor.
+- **Marcar en el mapa:** con el botón **📍 Marcar** se ubican molinos, mangas, bebidas, tranqueras, casas o galpones con un clic, y se trazan caminos principales y alternativos punto por punto. Tocando una marca se edita, se mueve o se borra.
+- **Imagen de la orden:** cada orden arma una imagen aérea de todo el sector del campo (Santa Clara Sur, Santa Clara Norte, Flores Chicas) con el lote resaltado, los demás lotes con su nombre, los molinos, las mangas y los caminos. En el teléfono, **Enviar por WhatsApp** comparte la imagen junto con el texto; en la computadora, la imagen se descarga y se abre WhatsApp con el texto para adjuntarla.
 - **Ficha del lote (en el mapa):** muestra las labores y costos de la campaña, y tiene la opción **Preguntar sobre este lote**, que responde con los datos cargados.
 - **Insumos y stock del galpón:**
   - Es la lista fija de insumos. En labores, órdenes y catálogo se eligen siempre de esta lista.

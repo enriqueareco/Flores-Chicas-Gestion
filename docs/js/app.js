@@ -22,7 +22,7 @@ const UNIDADES_DOSIS = ["L/ha", "cc/ha", "kg/ha", "g/ha", "u/ha"];
 
 const S = {
   campana: campanaActual(),
-  d: { lotes: [], siembras: [], rindes: [], proveedores: [], productos: [], labores_tipo: [], comprobantes: [], ordenes: [], labores: [] },
+  d: { lotes: [], siembras: [], rindes: [], infra: [], proveedores: [], productos: [], labores_tipo: [], comprobantes: [], ordenes: [], labores: [] },
   esquemaOk: true,
   vista: null,
 };
@@ -213,7 +213,7 @@ async function guardar(t, fila) {
 }
 async function borrar(t, id) { await DB.borrar(t, id); S.d[t] = S.d[t].filter((x) => x.id !== id); }
 async function cargarDatos() {
-  const r = await Promise.all(Object.keys(S.d).map((t) => DB.listar(t).catch((e) => { if (t === "labores_tipo") { S.esquemaOk = false; return []; } throw e; })));
+  const r = await Promise.all(Object.keys(S.d).map((t) => DB.listar(t).catch((e) => { if (t === "labores_tipo" || t === "infra") { S.esquemaOk = false; return []; } throw e; })));
   Object.keys(S.d).forEach((t, i) => (S.d[t] = r[i]));
   for (const l of S.d.lotes) l.subs = l.subs || [];
   for (const p of S.d.productos) p.alias = p.alias || [];
@@ -387,19 +387,19 @@ document.getElementById("fProj").onchange = async (e) => {
     m.querySelector("#mOk").onclick = async () => {
       close(); const fin = cargando("Importando…");
       try {
-        for (const t of ["lotes", "proveedores", "productos", "labores_tipo", "siembras", "comprobantes", "ordenes", "labores", "rindes"]) {
+        for (const t of ["lotes", "infra", "proveedores", "productos", "labores_tipo", "siembras", "comprobantes", "ordenes", "labores", "rindes"]) {
           const filas = (tablas[t] || []).map((r) => { const o = { ...r }; delete o.loteId; return o; });
           if (!filas.length) continue;
           if (t === "rindes") for (const r of filas) { r.path = r.path || r.id + ".json"; if (puntos[r.id]) await DB.subir("rindes", r.path, new Blob([JSON.stringify(puntos[r.id])], { type: "application/json" })); }
           await DB.guardarVarios(t, filas);
         }
-        await cargarDatos(); Mapa.redibujar(); Mapa.encuadrar(); refrescar(); toast("Datos importados");
+        await cargarDatos(); Mapa.redibujar(); Infra.dibujar(); Mapa.encuadrar(); refrescar(); toast("Datos importados");
       } catch (err) { console.error(err); toast("No se pudo importar: " + err.message, 7000); } finally { fin(); }
     };
   });
 };
 function exportarGeojson() {
-  descargar("lotes_flores_chicas.geojson", JSON.stringify({ type: "FeatureCollection", features: S.d.lotes.flatMap((l) => [{ type: "Feature", properties: { tipo: "lote", nombre: l.nombre, establecimiento: l.campo, ha: +haDe(l.geom).toFixed(2), cultivo: textoCultivos(l), campana: S.campana }, geometry: l.geom }, ...l.subs.map((sb) => ({ type: "Feature", properties: { tipo: "sector", lote: l.nombre, nombre: sb.nombre, establecimiento: l.campo, ha: +haDe(sb.geom).toFixed(2), cultivo: textoCultivos(l, sb.id), campana: S.campana }, geometry: sb.geom }))]) }), "application/geo+json");
+  descargar("lotes_flores_chicas.geojson", JSON.stringify({ type: "FeatureCollection", features: S.d.lotes.flatMap((l) => [{ type: "Feature", properties: { tipo: "lote", nombre: l.nombre, establecimiento: l.campo, ha: +haDe(l.geom).toFixed(2), cultivo: textoCultivos(l), campana: S.campana }, geometry: l.geom }, ...l.subs.map((sb) => ({ type: "Feature", properties: { tipo: "sector", lote: l.nombre, nombre: sb.nombre, establecimiento: l.campo, ha: +haDe(sb.geom).toFixed(2), cultivo: textoCultivos(l, sb.id), campana: S.campana }, geometry: sb.geom }))]).concat(S.d.infra.map((x) => ({ type: "Feature", properties: { tipo: x.tipo, nombre: infraNombre(x), notas: x.notas }, geometry: x.geom }))) }), "application/geo+json");
 }
 
 /* ============ Pantalla de ingreso ============ */

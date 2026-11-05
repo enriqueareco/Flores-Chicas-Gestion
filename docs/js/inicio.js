@@ -65,7 +65,7 @@ Vistas.cargar = function () {
   sc.onchange = () => { S.campana = sc.value; try { localStorage.setItem("fc-camp", S.campana); } catch (e) {} dibujarLotes(); refrescar(); };
 
   document.getElementById("v-mapa").hidden = false;
-  Mapa.init(); dibujarLotes(); encuadrar(); render();
+  Mapa.init(); Infra.iniciar(); dibujarLotes(); encuadrar(); render();
   const inicial = location.hash.slice(1) || (matchMedia("(max-width:820px)").matches ? "cargar" : "mapa");
   mostrarVista(inicial);
 
@@ -74,6 +74,6 @@ Vistas.cargar = function () {
   document.addEventListener("visibilitychange", async () => {
     if (document.hidden) { oculto = Date.now(); return; }
     if (DB.modo !== "nube" || Date.now() - oculto < 60000 || document.querySelector(".modal-bg") || S.drawing || S.editing) return;
-    try { await DB.renovar(); await cargarDatos(); dibujarLotes(); refrescar(); } catch (e) {}
+    try { await DB.renovar(); await cargarDatos(); dibujarLotes(); Infra.dibujar(); refrescar(); } catch (e) {}
   });
 })();

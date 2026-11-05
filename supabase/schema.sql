@@ -35,6 +35,19 @@ create table if not exists rindes (
   creado timestamptz default now()
 );
 
+-- Infraestructura del campo: molinos, mangas, bebidas, tranqueras, casas y caminos
+create table if not exists infra (
+  id text primary key default gen_random_uuid()::text,
+  tipo text not null,                      -- molino | manga | bebida | tranquera | casa | camino_principal | camino_alternativo
+  nombre text,
+  geom jsonb not null,                     -- Point o LineString
+  notas text,
+  creado timestamptz default now()
+);
+alter table infra enable row level security;
+drop policy if exists "usuarios del campo" on infra;
+create policy "usuarios del campo" on infra for all to authenticated using (true) with check (true);
+
 -- ---------- Proveedores, contratistas e insumos ----------
 create table if not exists proveedores (
   id text primary key default gen_random_uuid()::text,
@@ -152,7 +165,7 @@ create index if not exists ordenes_estado on ordenes(estado);
 do $$
 declare t text;
 begin
-  foreach t in array array['lotes','siembras','rindes','proveedores','productos','labores_tipo','comprobantes','ordenes','labores'] loop
+  foreach t in array array['lotes','siembras','rindes','infra','proveedores','productos','labores_tipo','comprobantes','ordenes','labores'] loop
     execute format('alter table %I enable row level security', t);
     execute format('drop policy if exists "usuarios del campo" on %I', t);
     execute format('create policy "usuarios del campo" on %I for all to authenticated using (true) with check (true)', t);

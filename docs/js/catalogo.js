@@ -100,5 +100,5 @@ Vistas.catalogo = function () {
 };
 
 function avisoEsquema() {
-  return `<div class="aviso" style="border-color:var(--danger)"><b>Falta actualizar la base de datos.</b> En Supabase, abrí <b>SQL Editor → New query</b>, pegá el contenido de <code>supabase/migracion_03.sql</code> (está en tu repositorio de GitHub) y tocá <b>Run</b>. Después recargá esta página. Hasta entonces, el catálogo de labores, los nombres alternativos y el control de remitos no se pueden guardar.</div>`;
+  return `<div class="aviso" style="border-color:var(--danger)"><b>Falta actualizar la base de datos.</b> En Supabase, abrí <b>SQL Editor → New query</b>, pegá el contenido de <code>supabase/migracion_04.sql</code> (está en tu repositorio de GitHub) y tocá <b>Run</b>. Después recargá esta página. Hasta entonces, el catálogo de labores, los nombres alternativos y el control de remitos y los molinos, mangas y caminos del mapa no se pueden guardar.</div>`;
 }

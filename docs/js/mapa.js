@@ -55,7 +55,7 @@ function estiloSub(l, sb) { return { color: "#ffffff", weight: 1.2, dashArray: "
 function dibujarLotes() {
   if (!map) return;
   lotesGroup.clearLayers(); S.layers.clear(); S.subLayers.clear();
-  const clic = (ev, l) => { L.DomEvent.stopPropagation(ev); if (S.drawing) { Dib._click(ev); return; } if (!S.editing) seleccionar(l.id); };
+  const clic = (ev, l) => { L.DomEvent.stopPropagation(ev); if (S.drawing) { S.drawing._click(ev); return; } if (!S.editing) seleccionar(l.id); };
   for (const l of S.d.lotes) {
     for (const sb of l.subs || []) {
       const y = L.geoJSON(sb.geom).getLayers()[0]; if (!y) continue; y.setStyle(estiloSub(l, sb));

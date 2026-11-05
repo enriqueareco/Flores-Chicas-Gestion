@@ -81,11 +81,12 @@ const Ordenes = {
       (o.insumos || []).length ? "Productos:\n" + o.insumos.map((i) => { const t = cantidadInsumo(i, o.superficie_ha); return `• ${i.nombre}: ${fmt(i.dosis, 2)} ${i.unidad} → ${fmt(t.cant, 1)} ${t.unidad}`; }).join("\n") : null,
       o.indicaciones ? `Indicaciones: ${o.indicaciones}` : null].filter(Boolean).join("\n");
   },
-  html(o) {
+  html(o, imgUrl) {
     const l = loteDe(o.lote_id);
     return `<div style="font:14px/1.5 'Source Sans 3',Arial,sans-serif;color:#000;max-width:720px;margin:0 auto;padding:10px">
       <div style="display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid #000;padding-bottom:6px"><div><div style="font:800 22px Archivo,Arial">Orden de trabajo N° ${o.numero}</div><div>Flores Chicas · ${esc(l?.campo || "")}</div></div><div style="text-align:right">Emitida ${fechaAR(o.fecha_emision)}<br>Prevista ${fechaAR(o.fecha_prevista)}</div></div>
       <table style="width:100%;border-collapse:collapse;margin:12px 0"><tr><td style="padding:4px 0;width:140px"><b>Labor</b></td><td>${esc(nombreLabor(o))}</td></tr><tr><td style="padding:4px 0"><b>Lote</b></td><td>${esc(nombreUbic(o.lote_id, o.sub_id))}</td></tr><tr><td style="padding:4px 0"><b>Superficie</b></td><td>${fmt(o.superficie_ha, 1)} ha</td></tr><tr><td style="padding:4px 0"><b>Cultivo</b></td><td>${esc(l ? textoCultivos(l, o.sub_id || undefined) : "") || "—"}</td></tr><tr><td style="padding:4px 0"><b>Contratista</b></td><td>${esc(o.contratista || "—")}</td></tr></table>
+      ${imgUrl ? `<img src="${imgUrl}" alt="" style="width:100%;margin:6px 0 10px;border:1px solid #000">` : ""}
       ${(o.insumos || []).length ? `<table style="width:100%;border-collapse:collapse;margin:8px 0"><tr style="border-bottom:1px solid #000"><th style="text-align:left;padding:4px">Producto</th><th style="text-align:right;padding:4px">Dosis</th><th style="text-align:right;padding:4px">Total a cargar</th></tr>${o.insumos.map((i) => { const t = cantidadInsumo(i, o.superficie_ha); return `<tr style="border-bottom:1px solid #ccc"><td style="padding:6px 4px">${esc(i.nombre)}</td><td style="text-align:right;padding:6px 4px">${fmt(i.dosis, 2)} ${esc(i.unidad)}</td><td style="text-align:right;padding:6px 4px"><b>${fmt(t.cant, 1)} ${t.unidad}</b></td></tr>`; }).join("")}</table>` : ""}
       ${o.indicaciones ? `<p><b>Indicaciones:</b> ${esc(o.indicaciones)}</p>` : ""}
       ${o.tipo === "Pulverización" ? `<p style="margin-top:18px"><b>Registro de la aplicación</b></p><table style="width:100%;border-collapse:collapse">${["Fecha y hora", "Viento (km/h y dirección)", "Temperatura / humedad", "Caudal (L/ha)", "N° receta agronómica"].map((t) => `<tr><td style="padding:8px 4px;width:220px">${t}</td><td style="border-bottom:1px solid #000"></td></tr>`).join("")}</table>` : ""}
@@ -95,14 +96,34 @@ const Ordenes = {
     if (!o) return;
     const ct = proveedorDe(o.contratista_id); const tel = telWhatsapp(ct?.telefono);
     const wa = `https://wa.me/${tel || ""}?text=${encodeURIComponent(Ordenes.texto(o))}`;
+    let img = null, imgUrl = null;
+    const archivo = () => new File([img.blob], `Orden_${o.numero}_${(loteDe(o.lote_id)?.nombre || "lote").replace(/[^\w-]+/g, "_")}.jpg`, { type: "image/jpeg" });
     modal(`<div class="row" style="justify-content:space-between"><h4>Orden N° ${o.numero}</h4>${pillOrden(o.estado)}</div>
+      <div id="oImg" class="col" style="gap:4px"><div class="row small muted"><span class="spin"></span> Armando la imagen aérea del lote…</div></div>
       <div class="respuesta" style="font-family:var(--f-body)">${esc(Ordenes.texto(o)).replace(/\*/g, "")}</div>
       ${!tel && o.contratista ? `<div class="small muted">Para mandarla directo al contratista, cargale el teléfono en Insumos y proveedores.</div>` : ""}
       ${o.labor_id ? `<button class="ghost small" id="oVerLab" style="align-self:flex-start">Ver la labor registrada</button>` : ""}
-      <div class="pie" style="justify-content:space-between"><span class="row"><a class="btn" href="${esc(wa)}" target="_blank" rel="noopener">Enviar por WhatsApp</a><button id="oImp">Imprimir</button><button id="oCop">Copiar texto</button></span>
+      <div class="pie" style="justify-content:space-between"><span class="row"><button class="primary" id="oWa">Enviar por WhatsApp</button><button id="oImp">Imprimir</button><button id="oBaj" disabled>Descargar imagen</button><button id="oCop">Copiar texto</button></span>
         <span class="row"><button id="oEdit">Editar</button>${o.estado === "realizada" || o.estado === "cancelada" ? "" : '<button class="primary" id="oHecha">Marcar realizada</button>'}</span></div>`, (m, close) => {
       const $ = (q) => m.querySelector(q);
-      $("#oImp").onclick = () => imprimir(Ordenes.html(o));
+      Imagen.deOrden(o).then((r) => {
+        img = r; imgUrl = URL.createObjectURL(r.blob);
+        if (!m.isConnected) return;
+        $("#oImg").innerHTML = `<img src="${imgUrl}" alt="Vista aérea del lote de la orden" style="width:100%;border-radius:6px;border:1px solid var(--line)">${r.conFondo ? "" : '<span class="small muted">No se pudo bajar la imagen satelital (revisá la conexión); se muestran solo los contornos.</span>'}`;
+        $("#oBaj").disabled = false;
+      }).catch((e) => { if (m.isConnected) $("#oImg").innerHTML = `<span class="small muted">No se pudo armar la imagen: ${esc(e.message)}</span>`; });
+      /* En el teléfono se comparte la imagen con el texto; en la computadora se descarga la imagen y se abre WhatsApp con el texto */
+      $("#oWa").onclick = async () => {
+        const texto = Ordenes.texto(o);
+        if (img && navigator.canShare && navigator.canShare({ files: [archivo()] })) {
+          try { await navigator.clipboard?.writeText(texto).catch(() => {}); await navigator.share({ files: [archivo()], text: texto, title: `Orden N° ${o.numero}` }); return; }
+          catch (e) { if (e.name === "AbortError") return; }
+        }
+        if (img) { descargar(archivo().name, img.blob, "image/jpeg"); toast("Se descargó la imagen del lote: adjuntala en el chat de WhatsApp.", 7000); }
+        window.open(wa, "_blank", "noopener");
+      };
+      $("#oBaj").onclick = () => img && descargar(archivo().name, img.blob, "image/jpeg");
+      $("#oImp").onclick = () => imprimir(Ordenes.html(o, imgUrl));
       $("#oCop").onclick = async () => { try { await navigator.clipboard.writeText(Ordenes.texto(o)); toast("Texto copiado"); } catch (e) { toast("No se pudo copiar."); } };
       $("#oEdit").onclick = () => { close(); Ordenes.form(o); };
       if ($("#oVerLab")) $("#oVerLab").onclick = () => { close(); Labores.form(S.d.labores.find((l) => l.id === o.labor_id)); };

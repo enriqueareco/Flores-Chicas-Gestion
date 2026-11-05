@@ -201,3 +201,6 @@ nav.bottom{display:none}
 table.t th.right{text-align:right}
 .filtros .field.grow{flex:1 1 180px;min-width:180px}
 table.t.fija{table-layout:fixed}
+
+.infra-pt{width:24px;height:24px;border-radius:50%;border:2.5px solid #fff;color:#fff;display:grid;place-items:center;font:800 11px var(--f-disp);box-shadow:0 1px 4px rgba(0,0,0,.6);box-sizing:border-box}
+.accion .ic .infra-pt{width:26px;height:26px}

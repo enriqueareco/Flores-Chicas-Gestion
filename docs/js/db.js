@@ -3,6 +3,7 @@
 const TABLAS = {
   lotes: ["id", "nombre", "campo", "geom", "subs", "notas", "creado"],
   siembras: ["id", "lote_id", "sub_id", "campana", "cultivo", "hibrido", "fecha", "notas", "creado"],
+  infra: ["id", "tipo", "nombre", "geom", "notas", "creado"],
   rindes: ["id", "lote_id", "campana", "cultivo", "campo", "unidad", "archivo", "n", "stats", "path", "creado"],
   proveedores: ["id", "nombre", "cuit", "tipo", "alias", "telefono", "notas", "creado"],
   productos: ["id", "nombre", "tipo", "principio_activo", "concentracion", "unidad", "alias", "precio", "moneda", "notas", "creado"],
@@ -25,7 +26,7 @@ const Local = {
   abrir() {
     return new Promise((res) => {
       try {
-        const r = indexedDB.open("campo-flores-chicas-app", 2);
+        const r = indexedDB.open("campo-flores-chicas-app", 3);
         r.onupgradeneeded = () => {
           const db = r.result, hay = (n) => db.objectStoreNames.contains(n);
           for (const t of Object.keys(TABLAS)) if (!hay(t)) db.createObjectStore(t, { keyPath: "id" });
@@ -65,7 +66,7 @@ const DB = {
   async esquemaAlDia() {
     if (this.modo !== "nube") return true;
     await this._r(() => this.sb.from("lotes").select("id").limit(1));
-    const r = await Promise.all([this.sb.from("labores_tipo").select("id").limit(1), this.sb.from("productos").select("alias").limit(1), this.sb.from("labores").select("labor_tipo_id").limit(1), this.sb.from("proveedores").select("alias").limit(1), this.sb.from("comprobantes").select("remitos").limit(1)]);
+    const r = await Promise.all([this.sb.from("labores_tipo").select("id").limit(1), this.sb.from("productos").select("alias").limit(1), this.sb.from("labores").select("labor_tipo_id").limit(1), this.sb.from("proveedores").select("alias").limit(1), this.sb.from("comprobantes").select("remitos").limit(1), this.sb.from("infra").select("id").limit(1)]);
     return r.every((x) => !x.error);
   },
   async entrar(email, clave) {
