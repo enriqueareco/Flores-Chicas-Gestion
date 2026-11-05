@@ -21,7 +21,7 @@ const Ordenes = {
     let recetaPrevia = null;
     modal(`<h4>${o ? `Orden N° ${o.numero}` : "Nueva orden de trabajo"}</h4>
       <div class="row"><div class="field grow" style="min-width:200px"><label class="lbl" for="oLote">Lote</label><select id="oLote">${opcionesLotes(x.lote_id)}</select></div>
-        <div class="field grow" id="oSubF"><label class="lbl" for="oSub">Sector</label><select id="oSub"></select></div></div>
+        <div class="field" id="oSubF" style="flex-basis:100%"><span class="lbl">Sectores</span><div class="row" id="oSubChips" style="gap:6px"></div><input type="hidden" id="oSub"></div></div>
       <div class="row"><div class="field grow" style="min-width:220px"><label class="lbl" for="oTipo">¿Qué labor es?</label><select id="oTipo">${opcionesCatalogo(x.labor_tipo_id)}</select></div>
         <div class="field"><label class="lbl" for="oFecha">Fecha prevista</label><input type="date" id="oFecha" value="${esc(x.fecha_prevista || "")}"></div>
         <div class="field"><label class="lbl" for="oHa">Superficie ha</label><input id="oHa" inputmode="decimal" value="${x.superficie_ha ?? ""}" style="width:100px"></div></div>
@@ -43,7 +43,7 @@ const Ordenes = {
       };
       const pintarIns = ed.pintar; ed.pintar = () => { pintarIns(); verStock(); }; ed.pintar();
       $("#oIns").addEventListener("input", verStock);
-      const subs = () => { const l = loteDe($("#oLote").value); $("#oSubF").hidden = !l?.subs?.length; $("#oSub").innerHTML = opcionesSubs(l, x.sub_id); };
+      const subs = () => { const l = loteDe($("#oLote").value); $("#oSubF").hidden = !l?.subs?.length; pintarSectores($("#oSubChips"), $("#oSub"), l, x.sub_id); };
       const aplicarReceta = (t) => {
         const igual = recetaPrevia && JSON.stringify(insumos.map((i) => [i.producto_id, i.dosis, i.unidad])) === JSON.stringify(recetaPrevia);
         if ((!insumos.length || igual) && (t?.insumos || []).length) { ed.reemplazar(t.insumos); recetaPrevia = insumos.map((i) => [i.producto_id, i.dosis, i.unidad]); }

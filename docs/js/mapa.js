@@ -5,7 +5,7 @@ const YCOL = ["#d7191c", "#fdae61", "#ffffbf", "#a6d96a", "#1a9641"];
 Object.assign(S, { sel: null, layers: new Map(), subLayers: new Map(), drawing: null, editing: null, overlay: null, ndvi: { items: [], sel: null, series: {} }, rindeVis: null, rindeLote: null, puntosCache: {} });
 const feat = (g) => ({ type: "Feature", properties: {}, geometry: g });
 const proximoNombre = (l) => { const usados = new Set((l.subs || []).map((s) => s.nombre)); for (const ch of "ABCDEFGHIJKLMNOPQRSTUVWXYZ") if (!usados.has("Sector " + ch)) return "Sector " + ch; return "Sector " + ((l.subs || []).length + 1); };
-const subNom = (l, id) => (l.subs || []).find((s) => s.id === id)?.nombre || "Sector borrado";
+const subNom = (l, id) => subsDe(l, id).map((s) => s.nombre).join(" + ") || "Sector borrado";
 async function puntosRinde(r) {
   if (S.puntosCache[r.id]) return S.puntosCache[r.id];
   try { const b = await DB.bajar("rindes", r.path || r.id + ".json"); if (!b) return null; const p = JSON.parse(await b.text()); S.puntosCache[r.id] = p; return p; } catch (e) { return null; }

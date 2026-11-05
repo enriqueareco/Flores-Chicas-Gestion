@@ -29,7 +29,7 @@ const Labores = {
       ${x.origen === "dictado" && !lab ? `<div class="small muted">Completado a partir del dictado. Revisá los datos antes de guardar.</div>` : ""}
       ${!S.d.labores_tipo.length ? `<div class="aviso">Todavía no hay labores en el catálogo. Elegí "Agregar una labor al catálogo" en la lista.</div>` : ""}
       <div class="row"><div class="field grow" style="min-width:200px"><label class="lbl" for="lbLote">Lote</label><select id="lbLote">${opcionesLotes(x.lote_id)}</select></div>
-        <div class="field grow" id="lbSubF"><label class="lbl" for="lbSub">Sector</label><select id="lbSub"></select></div></div>
+        <div class="field" id="lbSubF" style="flex-basis:100%"><span class="lbl">Sectores</span><div class="row" id="lbSubChips" style="gap:6px"></div><input type="hidden" id="lbSub"></div></div>
       <div class="row"><div class="field grow" style="min-width:220px"><label class="lbl" for="lbTipo">¿Qué labor es?</label><select id="lbTipo">${opcionesCatalogo(x.labor_tipo_id)}</select>${lab && !x.labor_tipo_id && x.tipo ? `<span class="small muted">Cargada antes del catálogo como «${esc(x.tipo)}»</span>` : ""}</div>
         <div class="field"><label class="lbl" for="lbFecha">Fecha</label><input type="date" id="lbFecha" value="${esc(x.fecha || "")}"></div>
         <div class="field"><label class="lbl" for="lbHa">Superficie ha</label><input id="lbHa" inputmode="decimal" value="${x.superficie_ha ?? ""}" style="width:100px"></div></div>
@@ -50,9 +50,11 @@ const Labores = {
       const ha = () => num($("#lbHa").value) || 0;
       const tipoSel = () => laborTipoDe($("#lbTipo").value);
       const ed = editorInsumos($("#lbIns"), insumos, { ha, tipoDef: () => tipoProdPorLabor(tipoSel()?.categoria) });
-      const subs = () => { const l = loteDe($("#lbLote").value); $("#lbSubF").hidden = !l?.subs?.length; $("#lbSub").innerHTML = opcionesSubs(l, x.sub_id); };
+      const subs = () => { const l = loteDe($("#lbLote").value); $("#lbSubF").hidden = !l?.subs?.length; pintarSectores($("#lbSubChips"), $("#lbSub"), l, x.sub_id); };
       const esSiembra = () => (tipoSel()?.categoria || x.tipo) === "Siembra";
-      const siemPrev = x.condiciones?.siembra_id ? S.d.siembras.find((y) => y.id === x.condiciones.siembra_id) : null;
+      const siemIds = x.condiciones?.siembra_ids || (x.condiciones?.siembra_id ? [x.condiciones.siembra_id] : []);
+      const siemPrevs = siemIds.map((id) => S.d.siembras.find((y) => y.id === id)).filter(Boolean);
+      const siemPrev = siemPrevs[0] || null;
       if (siemPrev) { $("#lbCult").value = siemPrev.cultivo; $("#lbVar").value = siemPrev.hibrido || ""; }
       let campTocada = !!siemPrev; $("#lbCamp").value = siemPrev?.campana || campanaDeSiembra($("#lbFecha").value);
       $("#lbCamp").onchange = () => (campTocada = true);
@@ -118,9 +120,9 @@ const Labores = {
       $("#lbAddI").onclick = () => ed.agregar();
       $("#mNo").onclick = close;
       if ($("#lbDel")) $("#lbDel").onclick = async () => {
-        if (!(await confirmar(`¿Eliminar esta labor? Los insumos usados vuelven al stock.${siemPrev ? ` También se quita ${esc(siemPrev.cultivo)} de la campaña ${esc(siemPrev.campana)}.` : ""}`))) return;
+        if (!(await confirmar(`¿Eliminar esta labor? Los insumos usados vuelven al stock.${siemPrev ? ` También se quita ${esc(siemPrev.cultivo)} de la campaña ${esc(siemPrev.campana)}${siemPrevs.length > 1 ? " en los " + siemPrevs.length + " sectores" : ""}.` : ""}`))) return;
         if (orden) { orden.estado = "pendiente"; orden.labor_id = null; await guardar("ordenes", orden); }
-        if (siemPrev) await borrar("siembras", siemPrev.id);
+        for (const sp of siemPrevs) await borrar("siembras", sp.id);
         await borrar("labores", lab.id); close(); afterSave();
       };
       const afterSave = () => { dibujarLotes(); if (S.vista === "mapa") render(); else refrescar(); };
@@ -139,18 +141,22 @@ const Labores = {
           const pc = precioCatalogo(t, fecha);
           const precio = manual ? { costo_ha: x.costo_ha, moneda: x.moneda || "USD", costo_estado: x.costo_ha != null ? "acordado" : "a_definir" } : pc ? { costo_ha: pc.precio, moneda: pc.moneda, costo_estado: "catalogo" } : { costo_ha: null, moneda: "USD", costo_estado: "a_definir" };
           /* Siembra: cargar o actualizar el cultivo de la campaña */
-          let siemId = null, campana = campanaDeFecha(fecha);
+          let campana = campanaDeFecha(fecha);
           if (categoria === "Siembra") {
-            const loteId = $("#lbLote").value, subId = $("#lbSub").value || null, camp = $("#lbCamp").value, cult = $("#lbCult").value;
-            campana = camp;
-            let sm = siemPrev && siemPrev.lote_id === loteId ? siemPrev : null;
-            /* Si el cultivo ya estaba cargado a mano en esa campaña sin fecha, se completa ese en vez de duplicarlo */
-            if (!sm) sm = S.d.siembras.find((y) => y.lote_id === loteId && (y.sub_id || null) === subId && y.campana === camp && y.cultivo === cult && !y.fecha) || null;
-            if (siemPrev && siemPrev !== sm) await borrar("siembras", siemPrev.id);
-            sm = { ...(sm || {}), id: sm?.id || uid(), lote_id: loteId, sub_id: subId, campana: camp, cultivo: cult, hibrido: $("#lbVar").value.trim() || null, fecha };
-            await guardar("siembras", sm); siemId = sm.id;
-            c.siembra_id = siemId;
-          } else if (siemPrev) await borrar("siembras", siemPrev.id);
+            /* Un cultivo por cada sector sembrado (o uno para el lote completo) */
+            const loteId = $("#lbLote").value, camp = $("#lbCamp").value, cult = $("#lbCult").value;
+            const destinos = subIds($("#lbSub").value); if (!destinos.length) destinos.push(null);
+            campana = camp; const ids = []; const usados = new Set();
+            for (const subId of destinos) {
+              let sm = siemPrevs.find((y) => y.lote_id === loteId && (y.sub_id || null) === subId && !usados.has(y.id)) || null;
+              /* Si el cultivo ya estaba cargado a mano en esa campaña sin fecha, se completa ese en vez de duplicarlo */
+              if (!sm) sm = S.d.siembras.find((y) => y.lote_id === loteId && (y.sub_id || null) === subId && y.campana === camp && y.cultivo === cult && !y.fecha && !usados.has(y.id)) || null;
+              sm = { ...(sm || {}), id: sm?.id || uid(), lote_id: loteId, sub_id: subId, campana: camp, cultivo: cult, hibrido: $("#lbVar").value.trim() || null, fecha };
+              usados.add(sm.id); await guardar("siembras", sm); ids.push(sm.id);
+            }
+            for (const sp of siemPrevs) if (!usados.has(sp.id)) await borrar("siembras", sp.id);
+            c.siembra_ids = ids; delete c.siembra_id;
+          } else for (const sp of siemPrevs) await borrar("siembras", sp.id);
           const n = { ...x, id: x.id || uid(), lote_id: $("#lbLote").value, sub_id: $("#lbSub").value || null, fecha, campana, labor_tipo_id: t?.id || null, tipo: categoria, contratista_id: ct.id, contratista: ct.nombre, superficie_ha: ha() || null, ...precio, insumos: r.insumos, condiciones: c, notas: $("#lbNot").value.trim() || null };
           delete n._dudas;
           await guardar("labores", n);
@@ -263,7 +269,7 @@ Vistas.labores = function () {
   $("#bNL").onclick = () => Labores.form(null, f.lote ? { lote_id: f.lote } : {});
   $("#bDic").onclick = () => Labores.dictado();
   el.querySelectorAll("[data-ir]").forEach((b) => (b.onclick = () => irA(b.dataset.ir)));
-  $("#bCsv").onclick = () => descargar(`labores_${S.campana.replace("/", "-")}.csv`, csv([["Fecha", "Campaña", "Establecimiento", "Lote", "Sector", "Labor", "Contratista", "ha", "Insumos", "Precio/ha", "Moneda", "Estado precio", "Total labor", "Costo insumos US$", "Notas"], ...lista.map((l) => { const lo = loteDe(l.lote_id); const c = costoLabor(l, precios); return [l.fecha, l.campana, lo?.campo, lo?.nombre, lo ? subDe(lo, l.sub_id)?.nombre : "", nombreLabor(l), l.contratista, l.superficie_ha, textoInsumos(l), l.costo_ha, l.moneda, { catalogo: "Catálogo", acordado: "A mano" }[l.costo_estado] || "A definir", c.labor, +c.insumosUSD.toFixed(2), l.notas]; })]), "text/csv");
+  $("#bCsv").onclick = () => descargar(`labores_${S.campana.replace("/", "-")}.csv`, csv([["Fecha", "Campaña", "Establecimiento", "Lote", "Sector", "Labor", "Contratista", "ha", "Insumos", "Precio/ha", "Moneda", "Estado precio", "Total labor", "Costo insumos US$", "Notas"], ...lista.map((l) => { const lo = loteDe(l.lote_id); const c = costoLabor(l, precios); return [l.fecha, l.campana, lo?.campo, lo?.nombre, lo ? subsDe(lo, l.sub_id).map((s) => s.nombre).join(" + ") : "", nombreLabor(l), l.contratista, l.superficie_ha, textoInsumos(l), l.costo_ha, l.moneda, { catalogo: "Catálogo", acordado: "A mano" }[l.costo_estado] || "A definir", c.labor, +c.insumosUSD.toFixed(2), l.notas]; })]), "text/csv");
   ["fL:lote", "fT:tipo", "fC:cont", "fK:costo"].forEach((s) => { const [id, k] = s.split(":"); $("#" + id).onchange = (e) => { f[k] = e.target.value; Vistas.labores(); }; });
   el.querySelectorAll("[data-l]").forEach((tr) => (tr.onclick = (e) => { if (e.target.matches("input")) return; Labores.form(S.d.labores.find((x) => x.id === tr.dataset.l)); }));
   el.querySelectorAll("[data-ck]").forEach((ck) => (ck.onchange = () => { ck.checked ? S.selLab.add(ck.dataset.ck) : S.selLab.delete(ck.dataset.ck); Vistas.labores(); }));
@@ -298,7 +304,7 @@ Vistas.aplicaciones = function () {
   el.querySelectorAll("[data-l]").forEach((tr) => (tr.onclick = () => Labores.form(S.d.labores.find((x) => x.id === tr.dataset.l))));
   $("#bCsvA").onclick = () => {
     const filas = [["Fecha", "Hora", "Campaña", "Establecimiento", "Lote", "Sector", "Cultivo", "ha", "Producto", "Principio activo", "Dosis", "Unidad", "Cantidad total", "Contratista", "Aplicador", "Viento km/h", "Dirección", "Temp °C", "Humedad %", "Caudal L/ha", "Receta", "Ing. agrónomo"]];
-    for (const l of lista) { const lo = loteDe(l.lote_id); const c = l.condiciones || {}; for (const i of l.insumos || []) { const p = productoDe(i.producto_id); filas.push([l.fecha, c.hora, l.campana, lo?.campo, lo?.nombre, lo ? subDe(lo, l.sub_id)?.nombre : "", cultivoDe(l), l.superficie_ha, i.nombre, p?.principio_activo, i.dosis, i.unidad, i.cantidad, l.contratista, c.aplicador, c.viento_kmh, c.direccion_viento, c.temperatura, c.humedad, c.caudal_lha, c.receta, c.ing_agronomo]); } }
+    for (const l of lista) { const lo = loteDe(l.lote_id); const c = l.condiciones || {}; for (const i of l.insumos || []) { const p = productoDe(i.producto_id); filas.push([l.fecha, c.hora, l.campana, lo?.campo, lo?.nombre, lo ? subsDe(lo, l.sub_id).map((s) => s.nombre).join(" + ") : "", cultivoDe(l), l.superficie_ha, i.nombre, p?.principio_activo, i.dosis, i.unidad, i.cantidad, l.contratista, c.aplicador, c.viento_kmh, c.direccion_viento, c.temperatura, c.humedad, c.caudal_lha, c.receta, c.ing_agronomo]); } }
     descargar(`aplicaciones_${f.todas ? "todas" : S.campana.replace("/", "-")}.csv`, csv(filas), "text/csv");
   };
 };

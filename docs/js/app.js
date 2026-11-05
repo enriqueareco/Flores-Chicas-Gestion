@@ -43,8 +43,37 @@ const num = (v) => { if (v === "" || v == null) return null; const n = Number(St
 function haDe(geom) { try { return turf.area({ type: "Feature", geometry: geom }) / 10000; } catch (e) { return 0; } }
 const loteDe = (id) => S.d.lotes.find((l) => l.id === id);
 const subDe = (l, id) => (l?.subs || []).find((s) => s.id === id);
-function nombreUbic(loteId, subId) { const l = loteDe(loteId); if (!l) return "Sin lote"; const s = subDe(l, subId); return l.nombre + (s ? " · " + s.nombre : ""); }
-function haUbic(loteId, subId) { const l = loteDe(loteId); if (!l) return null; const s = subDe(l, subId); return haDe(s ? s.geom : l.geom); }
+/* Un trabajo puede ser en el lote completo (sub_id vacío) o en uno o varios sectores ("idA,idB") */
+/* Sector del campo de un lote: el establecimiento cargado, o el que figura en el nombre ("32 Santa Clara Norte").
+   Los lotes sin sector en el nombre (Casco, Feed Lot…) toman el del lote vecino más cercano. */
+const SECTORES = ["Santa Clara Norte", "Santa Clara Sur", "Flores Chicas"];
+function sectorPorNombre(l) { if (l.campo) return l.campo; const n = norm(l.nombre); return SECTORES.find((s) => n.endsWith(norm(s))) || null; }
+function sectorDe(l) {
+  const s = sectorPorNombre(l); if (s) return s;
+  try {
+    const c = turf.centroid({ type: "Feature", geometry: l.geom }).geometry.coordinates; let mejor = null, dmin = Infinity;
+    for (const v of S.d.lotes) { const sv = sectorPorNombre(v); if (!sv || v.id === l.id) continue; const cv = turf.centroid({ type: "Feature", geometry: v.geom }).geometry.coordinates; const d = (cv[0] - c[0]) ** 2 + (cv[1] - c[1]) ** 2; if (d < dmin) { dmin = d; mejor = sv; } }
+    return mejor;
+  } catch (e) { return null; }
+}
+const subIds = (v) => (v ? String(v).split(",").filter(Boolean) : []);
+const subsDe = (l, v) => subIds(v).map((id) => subDe(l, id)).filter(Boolean);
+function nombreUbic(loteId, subId) { const l = loteDe(loteId); if (!l) return "Sin lote"; const ss = subsDe(l, subId); return l.nombre + (ss.length ? " · " + ss.map((s) => s.nombre).join(" + ") : ""); }
+function haUbic(loteId, subId) { const l = loteDe(loteId); if (!l) return null; const ss = subsDe(l, subId); return ss.length ? ss.reduce((a, s) => a + haDe(s.geom), 0) : haDe(l.geom); }
+/* Casillas para elegir lote completo o uno o varios sectores. Guarda el valor en el input oculto y avisa con su onchange. */
+function pintarSectores(chips, oculto, l, valor) {
+  const ss = l?.subs || []; const sel = new Set(subIds(valor).filter((id) => ss.some((s) => s.id === id)));
+  const fijar = () => { const v = sel.size && sel.size < ss.length ? ss.filter((s) => sel.has(s.id)).map((s) => s.id).join(",") : ""; oculto.value = v; };
+  const pintar = () => {
+    chips.innerHTML = `<label class="chip" style="cursor:pointer;padding:5px 10px"><input type="checkbox" data-sc="" ${!sel.size ? "checked" : ""}> Lote completo</label>` + ss.map((s) => `<label class="chip" style="cursor:pointer;padding:5px 10px"><input type="checkbox" data-sc="${s.id}" ${sel.has(s.id) ? "checked" : ""}> ${esc(s.nombre)} <span class="muted num">${fmt(haDe(s.geom))} ha</span></label>`).join("");
+    chips.querySelectorAll("[data-sc]").forEach((ck) => (ck.onchange = () => {
+      const id = ck.dataset.sc;
+      if (!id) sel.clear(); else { ck.checked ? sel.add(id) : sel.delete(id); if (sel.size === ss.length) sel.clear(); }
+      fijar(); pintar(); oculto.onchange && oculto.onchange();
+    }));
+  };
+  fijar(); pintar();
+}
 const proveedorDe = (id) => S.d.proveedores.find((p) => p.id === id);
 const productoDe = (id) => S.d.productos.find((p) => p.id === id);
 const contratistas = () => S.d.proveedores.filter((p) => p.tipo === "contratista" || p.tipo === "ambos");
@@ -53,7 +82,7 @@ const contratistas = () => S.d.proveedores.filter((p) => p.tipo === "contratista
 function ordenSiembras(a, b) { return (a.fecha || "9999").localeCompare(b.fecha || "9999") || (a.creado || "").localeCompare(b.creado || ""); }
 /* Cultivos que se mantienen de una campaña a la siguiente hasta que se cargue otro */
 const PERENNES = new Set(["Campo natural", "Promoción de ryegrass", "Pastura"]);
-function cultivosCargados(l, subId, c) { return S.d.siembras.filter((s) => s.lote_id === l.id && s.campana === c && (subId === undefined || !s.sub_id || s.sub_id === subId)).sort(ordenSiembras); }
+function cultivosCargados(l, subId, c) { const ids = subId === undefined ? null : subIds(subId); return S.d.siembras.filter((s) => s.lote_id === l.id && s.campana === c && (!ids || !s.sub_id || ids.includes(s.sub_id))).sort(ordenSiembras); }
 /* Si en la campaña no hay nada cargado y la última campaña con datos terminó con un cultivo perenne, ese cultivo continúa */
 function cultivoHeredado(l, subId, c) {
   const anteriores = [...new Set(S.d.siembras.filter((s) => s.lote_id === l.id && s.campana < c).map((s) => s.campana))].sort().reverse();
