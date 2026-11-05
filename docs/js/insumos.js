@@ -33,13 +33,13 @@ const Insumos = {
 
   /* Movimientos de un insumo: entradas por comprobantes y ajustes, salidas por labores */
   movimientos(p) {
-    const mv = [];
+    const mv = []; const ini = iniciosStock();
     for (const c of S.d.comprobantes) {
       if (c.estado !== "confirmado" || !c.mueve_stock) continue;
       const sg = c.tipo === "nota_credito" ? -1 : 1;
-      for (const it of c.items || []) if (it.producto_id === p.id && !it.ignorar) mv.push({ fecha: c.fecha, txt: c.tipo === "ajuste" ? `Ajuste de inventario${c.notas ? " · " + c.notas : ""}` : `${nombreTipoCompCorto(c.tipo)} ${c.numero || ""} · ${c.proveedor_nombre || ""}`, cant: sg * (Number(it.cantidad) || 0), comp: c.id, creado: c.creado });
+      for (const it of c.items || []) if (it.producto_id === p.id && !it.ignorar && cuentaStock(ini, p.id, c.fecha, c.creado, c.id)) mv.push({ fecha: c.fecha, txt: c.tipo === "ajuste" ? (c.ia?.inicio ? "Inventario inicial" : `Ajuste de inventario${c.notas ? " · " + c.notas : ""}`) : `${nombreTipoCompCorto(c.tipo)} ${c.numero || ""} · ${c.proveedor_nombre || ""}`, cant: sg * (Number(it.cantidad) || 0), comp: c.id, creado: c.creado });
     }
-    for (const l of S.d.labores) for (const i of l.insumos || []) if (i.producto_id === p.id) mv.push({ fecha: l.fecha, txt: `${nombreLabor(l)} · ${nombreUbic(l.lote_id, l.sub_id)}`, cant: -(i.cantidad != null ? Number(i.cantidad) : cantidadInsumo(i, l.superficie_ha).cant), lab: l.id, creado: l.creado });
+    for (const l of S.d.labores) for (const i of l.insumos || []) if (i.producto_id === p.id && cuentaStock(ini, p.id, l.fecha, l.creado)) mv.push({ fecha: l.fecha, txt: `${nombreLabor(l)} · ${nombreUbic(l.lote_id, l.sub_id)}`, cant: -(i.cantidad != null ? Number(i.cantidad) : cantidadInsumo(i, l.superficie_ha).cant), lab: l.id, creado: l.creado });
     mv.sort((a, b) => (a.fecha || "").localeCompare(b.fecha || "") || (a.creado || "").localeCompare(b.creado || ""));
     let saldo = 0; for (const m of mv) { saldo += m.cant; m.saldo = saldo; }
     return mv;
@@ -51,7 +51,7 @@ const Insumos = {
       <div class="stats"><div><span>En el galpón</span><b class="num">${fmt(hay, 1)} ${esc(p.unidad)}</b></div><div><span>Precio vigente</span><b class="num">${pr ? `US$ ${fmt(pr.usd, 2)}` : "—"}</b>${pr ? `<div class="small muted">${esc(pr.origen)}${pr.fecha ? " · " + fechaAR(pr.fecha) : ""}</div>` : ""}</div><div><span>En órdenes abiertas</span><b class="num">${fmt(st.ordenes, 1)} ${esc(p.unidad)}</b></div></div>
       ${hay < -1e-9 ? `<div class="aviso">El stock da negativo: se usó más de lo que ingresó. Falta cargar algún remito o hacer un ajuste de inventario.</div>` : ""}
       ${(p.alias || []).length ? `<div class="small"><span class="lbl">También figura como</span> ${(p.alias || []).map((a) => `<span class="chip">${esc(a.texto ?? a)}</span>`).join(" ")}</div>` : ""}
-      <h2>Movimientos</h2>
+      <h2>Movimientos</h2>${(() => { const m = iniciosStock(); const i = m.por[p.id] || m.glob; return i ? `<div class="small muted" style="margin-top:-6px">Desde el inventario inicial del ${fechaAR(i.fecha)}. Lo cargado antes no mueve el stock.</div>` : ""; })()}
       ${mv.length ? `<div class="tablewrap" style="max-height:320px;overflow:auto"><table class="t"><tr><th>Fecha</th><th>Movimiento</th><th class="right">Cantidad</th><th class="right">Saldo</th></tr>${mv.map((m) => `<tr class="click" ${m.comp ? `data-mc="${m.comp}"` : `data-ml="${m.lab}"`}><td class="num">${fechaAR(m.fecha)}</td><td class="small">${esc(m.txt)}</td><td class="num right" style="color:${m.cant < 0 ? "var(--danger)" : "var(--ok)"}">${m.cant > 0 ? "+" : ""}${fmt(m.cant, 1)}</td><td class="num right">${fmt(m.saldo, 1)}</td></tr>`).join("")}</table></div>` : `<div class="empty">Sin movimientos. Entra stock al confirmar remitos o facturas, y sale al cargar labores.</div>`}
       <div class="pie"><button id="dEdit" style="margin-right:auto">Editar insumo</button><button id="mNo">Cerrar</button><button class="primary" id="dAj">Ajustar stock</button></div>`, (m, close) => {
       const $ = (q) => m.querySelector(q);

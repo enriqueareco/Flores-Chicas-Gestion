@@ -124,15 +124,36 @@ function preciosDetalle() {
 function preciosProductos() { const d = preciosDetalle(); const o = {}; for (const k in d) o[k] = d[k].usd; return o; }
 const nombreTipoCompCorto = (t) => ({ factura: "Factura", remito: "Remito", nota_credito: "N. crédito", nota_debito: "N. débito", ajuste: "Ajuste" }[t] || "Comprob.");
 /* Stock del galpón: entra por remitos/facturas confirmados (y ajustes de inventario), sale por labores realizadas */
+/* Inventario inicial: un ajuste marcado como inicio fija el stock de sus insumos en ese momento.
+   Lo cargado antes de ese momento (labores, remitos) no mueve el stock: se hizo con stock anterior.
+   Los insumos que no figuran en ningún inventario usan el inventario general. */
+function iniciosStock() {
+  let glob = null; const por = {};
+  for (const c of S.d.comprobantes) {
+    if (c.tipo !== "ajuste" || c.estado !== "confirmado" || !c.ia?.inicio) continue;
+    const m = { fecha: c.fecha, momento: c.ia.momento || c.fecha + "T03:00:00.000Z", comp: c.id };
+    if (c.ia.global && (!glob || m.momento > glob.momento)) glob = m;
+    for (const it of c.items || []) if (it.producto_id && (!por[it.producto_id] || m.momento > por[it.producto_id].momento)) por[it.producto_id] = m;
+  }
+  return { glob, por };
+}
+function cuentaStock(ini, prodId, fecha, creado, compId) {
+  const m = ini.por[prodId] || ini.glob; if (!m) return true;
+  if (compId && compId === m.comp) return true;
+  if (compId) { const c = S.d.comprobantes.find((x) => x.id === compId); if (c?.ia?.inicio) return false; }
+  if (!fecha) return (creado || "") > m.momento;
+  if (fecha !== m.fecha) return fecha > m.fecha;
+  return (creado || "") > m.momento;
+}
 function stockProductos() {
-  const st = {};
+  const st = {}; const ini = iniciosStock();
   const a = (id) => (st[id] ??= { entra: 0, sale: 0, ordenes: 0 });
   for (const c of S.d.comprobantes) {
     if (c.estado !== "confirmado" || !c.mueve_stock) continue;
     const sg = c.tipo === "nota_credito" ? -1 : 1;
-    for (const it of c.items || []) if (it.producto_id && !it.ignorar) a(it.producto_id).entra += sg * (Number(it.cantidad) || 0);
+    for (const it of c.items || []) if (it.producto_id && !it.ignorar && cuentaStock(ini, it.producto_id, c.fecha, c.creado, c.id)) a(it.producto_id).entra += sg * (Number(it.cantidad) || 0);
   }
-  for (const l of S.d.labores) for (const ins of l.insumos || []) if (ins.producto_id) a(ins.producto_id).sale += ins.cantidad != null ? Number(ins.cantidad) : cantidadInsumo(ins, l.superficie_ha).cant;
+  for (const l of S.d.labores) for (const ins of l.insumos || []) if (ins.producto_id && cuentaStock(ini, ins.producto_id, l.fecha, l.creado)) a(ins.producto_id).sale += ins.cantidad != null ? Number(ins.cantidad) : cantidadInsumo(ins, l.superficie_ha).cant;
   for (const o of S.d.ordenes) if (o.estado === "pendiente" || o.estado === "en_curso") for (const ins of o.insumos || []) if (ins.producto_id) a(ins.producto_id).ordenes += ins.cantidad != null ? Number(ins.cantidad) : cantidadInsumo(ins, o.superficie_ha).cant;
   return st;
 }
