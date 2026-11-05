@@ -70,8 +70,8 @@ const Imagen = {
     for (const v of vecinos) { const propio = !porSector || sectorDe(v) === sector; this.trazar(ctx, v.geom, z, ox, oy); ctx.fillStyle = propio ? "rgba(255,255,255,.07)" : "rgba(0,0,0,.18)"; ctx.fill("evenodd"); ctx.lineWidth = propio ? 2 : 1; ctx.strokeStyle = propio ? "rgba(255,255,255,.9)" : "rgba(255,255,255,.45)"; ctx.stroke(); }
     /* Lote de la orden (y el sector si corresponde) */
     this.trazar(ctx, l.geom, z, ox, oy);
-    ctx.fillStyle = sub ? "rgba(242,193,78,.10)" : "rgba(242,193,78,.28)"; ctx.fill("evenodd");
-    ctx.lineWidth = 7; ctx.strokeStyle = "rgba(0,0,0,.55)"; ctx.stroke(); ctx.lineWidth = 4; ctx.strokeStyle = "#F2C14E"; ctx.stroke();
+    ctx.fillStyle = sub ? "rgba(242,193,78,.14)" : porSector ? "rgba(242,193,78,.45)" : "rgba(242,193,78,.28)"; ctx.fill("evenodd");
+    ctx.lineWidth = porSector ? 10 : 7; ctx.strokeStyle = "rgba(0,0,0,.6)"; ctx.stroke(); ctx.lineWidth = porSector ? 6 : 4; ctx.strokeStyle = "#F2C14E"; ctx.stroke();
     for (const s of sub || []) { this.trazar(ctx, s.geom, z, ox, oy); ctx.fillStyle = "rgba(242,193,78,.42)"; ctx.fill("evenodd"); ctx.setLineDash([12, 8]); ctx.lineWidth = 3; ctx.strokeStyle = "#FFF3C4"; ctx.stroke(); ctx.setLineDash([]); }
     /* Caminos y puntos */
     for (const x of S.d.infra.filter((x) => x.geom?.type === "LineString")) {
@@ -98,8 +98,10 @@ const Imagen = {
     for (const s of sub || []) { const [X, Y] = centro(s.geom); this.etiqueta(ctx, s.nombre, X, Y + 28, 18, 700, "#FFF3C4"); }
     const [LX, LY] = centro(l.geom);
     const anchoLote = this.px(bl[2], z) - this.px(bl[0], z);
-    if (anchoLote < 70) { ctx.beginPath(); ctx.arc(LX, LY, 26, 0, Math.PI * 2); ctx.lineWidth = 4; ctx.strokeStyle = "#F2C14E"; ctx.stroke(); }
-    this.etiqueta(ctx, corto(l).toUpperCase(), LX, anchoLote < 70 ? LY - 40 : LY, porSector ? 24 : 30, 800, "#F2C14E");
+    /* Si el lote se ve chico dentro del sector, un anillo alrededor para encontrarlo enseguida */
+    const chico = anchoLote < 140; const radio = Math.max(34, anchoLote * 0.75);
+    if (chico) { ctx.beginPath(); ctx.arc(LX, LY, radio, 0, Math.PI * 2); ctx.lineWidth = 9; ctx.strokeStyle = "rgba(0,0,0,.55)"; ctx.stroke(); ctx.lineWidth = 5; ctx.strokeStyle = "#F2C14E"; ctx.stroke(); }
+    this.etiqueta(ctx, corto(l).toUpperCase(), LX, chico ? LY - radio - 18 : LY, porSector ? 28 : 30, 800, "#F2C14E");
     if (porSector) { ctx.font = "800 22px Archivo, Arial, sans-serif"; ctx.textAlign = "left"; ctx.textBaseline = "middle"; ctx.lineWidth = 6; ctx.strokeStyle = "rgba(0,0,0,.85)"; ctx.lineJoin = "round"; ctx.strokeText(sector.toUpperCase(), 22, 34); ctx.fillStyle = "#fff"; ctx.fillText(sector.toUpperCase(), 22, 34); }
     ctx.restore();
     /* Leyenda de molinos, mangas y caminos que aparecen */
