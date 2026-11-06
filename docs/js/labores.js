@@ -252,7 +252,7 @@ Vistas.labores = function () {
   let cl = { USD: 0, ARS: 0 }, ci = 0; for (const l of deCamp) { const c = costoLabor(l, precios); ci += c.insumosUSD; if (c.labor != null) cl[c.moneda] += c.labor; }
   const conts = [...new Set(S.d.labores.map((l) => l.contratista).filter(Boolean))].sort();
   el.innerHTML = `<div class="page-in">
-    <div class="page-head"><h1>Labores ${esc(S.campana)}</h1><div class="row"><button class="primary" id="bNL">+ Labor</button><button id="bDic">🎤 Dictar labor</button><button data-ir="catalogo">Catálogo y precios</button><button id="bCsv" class="hide-m">Exportar CSV</button></div></div>
+    <div class="page-head"><h1>Labores ${esc(S.campana)}</h1><div class="row"><button class="primary" id="bNL">+ Labor</button><button id="bDic">🎤 Dictar labor</button><button data-ir="catalogo">Precios de labores</button><button id="bCsv" class="hide-m">Exportar CSV</button></div></div>
     <div class="kpis"><div class="kpi"><span>Labores</span><b>${deCamp.length}</b></div><div class="kpi ${aDef ? "alerta" : ""}"><span>Precio a definir</span><b>${aDef}</b></div>
       <div class="kpi"><span>Costo labores</span><b>${cl.USD || !cl.ARS ? fmtM(cl.USD, "USD") : ""}${cl.ARS ? (cl.USD ? " + " : "") + fmtM(cl.ARS, "ARS") : ""}</b></div><div class="kpi"><span>Costo insumos</span><b>${fmtM(ci, "USD")}</b></div></div>
     <div class="filtros"><div class="field grow" style="min-width:160px"><label class="lbl" for="fL">Lote</label><select id="fL"><option value="">Todos</option>${opcionesLotes(f.lote, false)}</select></div>

@@ -169,7 +169,7 @@ function precioCatalogo(t, fecha = hoy()) {
 const conPrecio = (l) => l.costo_ha != null && l.costo_estado !== "a_definir";
 function opcionesCatalogo(sel, extra = true) {
   const g = {}; for (const t of S.d.labores_tipo) if (t.activo !== false || t.id === sel) (g[t.categoria || "Otra"] ??= []).push(t);
-  return `<option value="">Elegir labor…</option>` + TIPOS_LABOR.filter((c) => g[c]).map((c) => `<optgroup label="${esc(c)}">${g[c].sort((a, b) => a.nombre.localeCompare(b.nombre)).map((t) => { const p = precioCatalogo(t); return `<option value="${t.id}" ${t.id === sel ? "selected" : ""}>${esc(t.nombre)}${p ? ` · ${p.moneda === "ARS" ? "$" : "US$"} ${fmt(p.precio, 2)}/ha` : ""}</option>`; }).join("")}</optgroup>`).join("") + (extra ? `<option value="__nueva">+ Agregar una labor al catálogo…</option>` : "");
+  return `<option value="">Elegir labor…</option>` + TIPOS_LABOR.filter((c) => g[c]).map((c) => `<optgroup label="${esc(c)}">${g[c].sort((a, b) => a.nombre.localeCompare(b.nombre)).map((t) => { const p = precioCatalogo(t); return `<option value="${t.id}" ${t.id === sel ? "selected" : ""}>${esc(t.nombre)}${p ? ` · ${p.moneda === "ARS" ? "$" : "US$"} ${fmt(p.precio, 2)}/ha` : ""}</option>`; }).join("")}</optgroup>`).join("") + (extra ? `<option value="__nueva">+ Agregar una labor nueva…</option>` : "");
 }
 /* ---------- Insumos ---------- */
 const unidadDosis = (p) => ({ kg: "kg/ha", u: "u/ha" }[p?.unidad] || "L/ha");
@@ -361,15 +361,16 @@ function mostrarVista(v) {
   Vistas[v]();
 }
 window.addEventListener("hashchange", () => mostrarVista(location.hash.slice(1) || "mapa"));
-function refrescar() { if (S.vista && Vistas[S.vista]) Vistas[S.vista](); }
+/* Número de órdenes pendientes en el botón del mapa */
+function badgeOrdenes() { const b = document.getElementById("ordBadge"); if (!b) return; const n = S.d.ordenes.filter((o) => o.estado === "pendiente" || o.estado === "en_curso").length; b.textContent = n; b.hidden = !n; }
+function refrescar() { badgeOrdenes(); if (S.vista && Vistas[S.vista]) Vistas[S.vista](); }
 
 function menuMas() {
   modal(`<h4>Más</h4><div class="col">
-    <button class="big" data-ir="aplicaciones">Aplicaciones de agroquímicos</button>
+    <button class="big" data-ir="ordenes">Órdenes de trabajo</button>
     <button class="big" data-ir="comprobantes">Comprobantes</button>
-    <button class="big" data-ir="insumos">Insumos y stock del galpón</button>
-    <button class="big" data-ir="proveedores">Proveedores y control de remitos</button>
-    <button class="big" data-ir="catalogo">Catálogo de labores y precios</button>
+    <button class="big" data-ir="proveedores">Proveedores</button>
+    <button class="big" data-ir="catalogo">Precios de labores</button>
     <button class="big" id="mCuenta">Cuenta y datos</button></div>
     <div class="pie"><button id="mNo">Cerrar</button></div>`, (m, close) => {
     m.querySelectorAll("[data-ir]").forEach((b) => (b.onclick = () => { close(); irA(b.dataset.ir); }));

@@ -13,7 +13,7 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Source+Sans+3:wght@400;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css">
-<link rel="stylesheet" href="css/app.css?v=20261105d">
+<link rel="stylesheet" href="css/app.css?v=20261106a">
 </head>
 <body>
 <header class="top">
@@ -22,12 +22,10 @@
     <a href="#mapa" data-v="mapa">Mapa</a>
     <a href="#cargar" data-v="cargar">Cargar</a>
     <a href="#labores" data-v="labores">Labores</a>
-    <a href="#aplicaciones" data-v="aplicaciones">Aplicaciones</a>
-    <a href="#ordenes" data-v="ordenes">Órdenes</a>
     <a href="#comprobantes" data-v="comprobantes">Comprobantes</a>
     <a href="#insumos" data-v="insumos">Insumos</a>
     <a href="#proveedores" data-v="proveedores">Proveedores</a>
-    <a href="#catalogo" data-v="catalogo">Catálogo</a>
+    <a href="#catalogo" data-v="catalogo">Precios de labores</a>
   </nav>
   <div class="acc">
     <span class="modo" id="modoChip" hidden>MODO PRUEBA</span>
@@ -45,7 +43,8 @@
         <button id="btnInfra" title="Molinos, mangas, bebidas, tranqueras y caminos">📍 Marcar</button>
         <select id="selBase" aria-label="Fondo del mapa"><option value="sat">Satélite Esri</option><option value="sat2">Satélite Esri Clarity</option><option value="s2">Sentinel-2 sin nubes</option><option value="osm">Calles</option></select>
       </div>
-      <div id="legend" class="legend" hidden></div><div id="coord" class="coord">—</div></div>
+      <div id="legend" class="legend" hidden></div><div id="coord" class="coord">—</div>
+      <button id="btnOrdenes" class="ordenes-fab" title="Órdenes de trabajo"><span class="ic">☑</span><span>Órdenes</span><span class="badge" id="ordBadge" hidden>0</span></button></div>
     <aside class="ficha"><div class="scroll" id="panel"></div></aside>
   </section>
   <section class="view page" id="v-cargar" hidden></section>
@@ -62,7 +61,7 @@
   <a href="#mapa" data-v="mapa"><span class="i">◫</span>Mapa</a>
   <a href="#labores" data-v="labores"><span class="i">⚒</span>Labores</a>
   <a href="#cargar" data-v="cargar" class="mas"><span class="i">+</span>Cargar</a>
-  <a href="#ordenes" data-v="ordenes"><span class="i">☑</span>Órdenes</a>
+  <a href="#insumos" data-v="insumos"><span class="i">▤</span>Insumos</a>
   <a href="#mas" data-v="mas"><span class="i">⋯</span>Más</a>
 </nav>
 
@@ -82,18 +81,18 @@
 <script src="https://unpkg.com/shpjs@4.0.4/dist/shp.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/geotiff@2.1.3/dist-browser/geotiff.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script src="js/config.js?v=20261105d"></script>
-<script src="js/db.js?v=20261105d"></script>
-<script src="js/app.js?v=20261105d"></script>
-<script src="js/mapa.js?v=20261105d"></script>
-<script src="js/insumos.js?v=20261105d"></script>
-<script src="js/catalogo.js?v=20261105d"></script>
-<script src="js/proveedores.js?v=20261105d"></script>
-<script src="js/infra.js?v=20261105d"></script>
-<script src="js/imagen.js?v=20261105d"></script>
-<script src="js/comprobantes.js?v=20261105d"></script>
-<script src="js/labores.js?v=20261105d"></script>
-<script src="js/ordenes.js?v=20261105d"></script>
-<script src="js/inicio.js?v=20261105d"></script>
+<script src="js/config.js?v=20261106a"></script>
+<script src="js/db.js?v=20261106a"></script>
+<script src="js/app.js?v=20261106a"></script>
+<script src="js/mapa.js?v=20261106a"></script>
+<script src="js/insumos.js?v=20261106a"></script>
+<script src="js/catalogo.js?v=20261106a"></script>
+<script src="js/proveedores.js?v=20261106a"></script>
+<script src="js/infra.js?v=20261106a"></script>
+<script src="js/imagen.js?v=20261106a"></script>
+<script src="js/comprobantes.js?v=20261106a"></script>
+<script src="js/labores.js?v=20261106a"></script>
+<script src="js/ordenes.js?v=20261106a"></script>
+<script src="js/inicio.js?v=20261106a"></script>
 </body>
 </html>

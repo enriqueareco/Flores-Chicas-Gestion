@@ -10,7 +10,7 @@ const Catalogo = {
     const receta = (x.insumos || []).map((i) => ({ ...i }));
     const pv = precioCatalogo(x);
     const usos = t ? S.d.labores.filter((l) => l.labor_tipo_id === t.id).length : 0;
-    modal(`<h4>${nuevo ? "Nueva labor del catálogo" : esc(x.nombre)}</h4>
+    modal(`<h4>${nuevo ? "Nueva labor" : esc(x.nombre)}</h4>
       <div class="row"><div class="field grow" style="min-width:200px"><label class="lbl" for="ctNom">Nombre</label><input id="ctNom" value="${esc(x.nombre)}" placeholder="Ej. Pulverización terrestre"></div>
         <div class="field"><label class="lbl" for="ctCat">Tipo</label><select id="ctCat">${opciones(TIPOS_LABOR, x.categoria)}</select></div></div>
       ${nuevo ? `<div class="row"><div class="field"><label class="lbl" for="ctPre">Precio por ha</label><input id="ctPre" inputmode="decimal" style="width:120px" placeholder="Ej. 7"></div>
@@ -85,7 +85,7 @@ Vistas.catalogo = function () {
   const sinPrecio = S.d.labores_tipo.filter((t) => t.activo !== false && !precioCatalogo(t)).length;
   const usosCamp = (id) => S.d.labores.filter((l) => l.labor_tipo_id === id && l.campana === S.campana);
   el.innerHTML = `<div class="page-in">
-    <div class="page-head"><h1>Catálogo de labores</h1><button class="primary" id="bNC">+ Labor</button></div>
+    <div class="page-head"><h1>Precios de labores</h1><button class="primary" id="bNC">+ Labor</button></div>
     ${!S.esquemaOk ? avisoEsquema() : ""}
     <div class="small muted" style="max-width:70ch">Cada labor tiene un precio por hectárea que se aplica solo al cargarla en un lote. Cuando cambia la tarifa, tocá la labor y "Cambiar precio": las labores anteriores conservan el precio que tenían.</div>
     ${sinPrecio ? `<div class="aviso">${sinPrecio} labor${sinPrecio > 1 ? "es" : ""} del catálogo sin precio. Tocalas para ponérselo.</div>` : ""}

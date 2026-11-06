@@ -143,7 +143,7 @@ Vistas.ordenes = function () {
   const abiertas = S.d.ordenes.filter((o) => o.estado === "pendiente" || o.estado === "en_curso");
   const atrasadas = abiertas.filter((o) => o.fecha_prevista && o.fecha_prevista < hoy()).length;
   el.innerHTML = `<div class="page-in">
-    <div class="page-head"><h1>Órdenes de trabajo</h1><button class="primary" id="bNO">+ Orden de trabajo</button></div>
+    <div class="page-head"><div class="col" style="gap:4px"><button class="ghost small" id="bVolver" style="align-self:flex-start;padding:2px 6px">← Volver al mapa</button><h1>Órdenes de trabajo</h1></div><button class="primary" id="bNO">+ Orden de trabajo</button></div>
     <div class="kpis"><div class="kpi"><span>Abiertas</span><b>${abiertas.length}</b></div><div class="kpi ${atrasadas ? "alerta" : ""}"><span>Con fecha vencida</span><b>${atrasadas}</b></div></div>
     <div class="filtros"><div class="field"><label class="lbl" for="oF">Mostrar</label><select id="oF">${opciones([["abiertas", "Abiertas"], ["realizada", "Realizadas"], ["cancelada", "Canceladas"], ["todas", "Todas"]], f.estado)}</select></div></div>
     ${lista.length ? `<div class="card" style="padding:0"><div class="tablewrap"><table class="t"><tr><th>N°</th><th>Prevista</th><th>Lote</th><th>Labor</th><th class="hide-m">Insumos</th><th class="right">ha</th><th>Estado</th></tr>
@@ -151,6 +151,7 @@ Vistas.ordenes = function () {
       : `<div class="empty">${f.estado === "abiertas" ? "No hay órdenes abiertas." : "No hay órdenes con ese estado."} Una orden indica qué hacer en un lote, con qué productos y dosis; se imprime o se manda por WhatsApp al contratista, y al marcarla realizada queda registrada como labor.</div>`}
   </div>`;
   el.querySelector("#bNO").onclick = () => Ordenes.form(null);
+  el.querySelector("#bVolver").onclick = () => irA("mapa");
   el.querySelector("#oF").onchange = (e) => { f.estado = e.target.value; Vistas.ordenes(); };
   el.querySelectorAll("[data-o]").forEach((tr) => (tr.onclick = () => Ordenes.ver(S.d.ordenes.find((o) => o.id === tr.dataset.o))));
 };
