@@ -4,7 +4,7 @@
 function campanaDeSiembra(f) { if (!f) return S.campana; const d = new Date(f + "T12:00"); const y = d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1; return `${y}/${String(y + 1).slice(2)}`; }
 /* Adivina el cultivo por el nombre de la semilla elegida (ej. "Maíz DK 72-10") */
 function cultivoPorSemilla(insumos) {
-  const claves = Object.keys(CULTIVOS).filter((c) => !["Otro", "Barbecho", "Campo natural", "Soja 2da", "Promoción de ryegrass", "Maíz de pastoreo", "Verdeo"].includes(c)).sort((a, b) => b.length - a.length);
+  const claves = listaCultivos().filter((c) => !["Otro", "Barbecho", "Campo natural", "Soja 2da", "Promoción de ryegrass", "Maíz de pastoreo", "Verdeo"].includes(c)).sort((a, b) => b.length - a.length);
   for (const i of insumos) { const p = productoDe(i.producto_id); if (!p || p.tipo !== "semilla") continue; const n = norm(p.nombre + " " + (p.principio_activo || "")); const c = claves.find((k) => n.includes(norm(k))); if (c) return { cultivo: c, semilla: p }; }
   const p = insumos.map((i) => productoDe(i.producto_id)).find((p) => p?.tipo === "semilla"); return p ? { cultivo: null, semilla: p } : null;
 }
@@ -37,7 +37,7 @@ const Labores = {
       <div class="row" style="justify-content:space-between"><h2>Insumos</h2><button type="button" class="small" id="lbAddI">+ Insumo</button></div>
       <div id="lbIns" class="col" style="gap:6px"></div>
       <div id="lbSiemBox" class="col" style="gap:8px"><h2>Qué se sembró</h2>
-        <div class="row"><div class="field grow"><label class="lbl" for="lbCult">Cultivo</label><select id="lbCult"><option value="">Elegir cultivo…</option>${opciones(Object.keys(CULTIVOS))}</select></div>
+        <div class="row"><div class="field grow"><label class="lbl" for="lbCult">Cultivo</label><select id="lbCult"><option value="">Elegir cultivo…</option>${opcionesCultivos()}</select></div>
           <div class="field grow"><label class="lbl" for="lbVar">Híbrido / variedad</label><input id="lbVar" list="dlVar" placeholder="Ej. DK 72-10"><datalist id="dlVar">${[...new Set(S.d.siembras.map((y) => y.hibrido).filter(Boolean))].map((h) => `<option value="${esc(h)}">`).join("")}</datalist></div>
           <div class="field"><label class="lbl" for="lbCamp">Campaña</label><select id="lbCamp">${opciones(campanas())}</select></div></div>
         <div class="small muted">Al guardar, el cultivo queda cargado en la campaña del lote con esta fecha de siembra.</div></div>
@@ -59,7 +59,7 @@ const Labores = {
       let campTocada = !!siemPrev; $("#lbCamp").value = siemPrev?.campana || campanaDeSiembra($("#lbFecha").value);
       $("#lbCamp").onchange = () => (campTocada = true);
       let cultTocado = !!siemPrev, varTocada = !!siemPrev;
-      $("#lbCult").onchange = () => (cultTocado = true); $("#lbVar").oninput = () => (varTocada = true);
+      $("#lbCult").onchange = () => (cultTocado = true); selectCultivo($("#lbCult"), () => (cultTocado = true)); $("#lbVar").oninput = () => (varTocada = true);
       /* Propone cultivo y variedad según la semilla y lo que ya tiene el lote en la campaña */
       const sugerirSiembra = () => {
         if (!esSiembra()) return;

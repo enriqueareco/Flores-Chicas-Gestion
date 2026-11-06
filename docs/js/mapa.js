@@ -270,7 +270,7 @@ function formSiembra(l, sid, def = {}) {
   const d = x || def;
   modal(`<h4>${x ? "Editar" : "Agregar"} cultivo · ${esc(l.nombre)}</h4>
     <div class="row"><div class="field"><label class="lbl" for="sCamp">Campaña</label><select id="sCamp">${opciones(campanas(), x?.campana || S.campana)}</select></div>
-    <div class="field grow"><label class="lbl" for="sCult">Cultivo</label><select id="sCult">${opciones(Object.keys(CULTIVOS), x?.cultivo)}</select></div></div>
+    <div class="field grow"><label class="lbl" for="sCult">Cultivo</label><select id="sCult">${opcionesCultivos(x?.cultivo)}</select></div></div>
     ${l.subs.length ? `<div class="field"><label class="lbl" for="sSub">Dónde</label><select id="sSub">${opcionesSubs(l, d?.sub_id).replace("Lote completo", "Lote completo · " + fmt(haDe(l.geom)) + " ha")}</select></div>` : ""}
     <div class="row"><div class="field grow"><label class="lbl" for="sHib">Híbrido / variedad</label><input id="sHib" value="${esc(x?.hibrido || "")}"></div><div class="field"><label class="lbl" for="sFec">Fecha de siembra</label><input type="date" id="sFec" value="${esc(x?.fecha || "")}"></div></div>
     <div class="field"><label class="lbl" for="sNot">Notas</label><input id="sNot" value="${esc(x?.notas || "")}" placeholder="Densidad, fertilización, antecesor…"></div>
@@ -278,7 +278,7 @@ function formSiembra(l, sid, def = {}) {
     <div class="pie">${x ? '<button class="danger ghost" id="mDel" style="margin-right:auto">Quitar</button>' : ""}<button id="mNo">Cancelar</button><button class="primary" id="mOk">Guardar</button></div>`, (m, close) => {
     const $ = (q) => m.querySelector(q); $("#mNo").onclick = close;
     const per = () => { $("#sPer").textContent = PERENNES.has($("#sCult").value) ? "Este cultivo se mantiene en las campañas siguientes hasta que cargues otro." : ""; };
-    $("#sCult").onchange = per; per();
+    $("#sCult").onchange = per; per(); selectCultivo($("#sCult"), per);
     if ($("#mDel")) $("#mDel").onclick = async () => { await borrar("siembras", x.id); close(); dibujarLotes(); render(); };
     $("#mOk").onclick = async () => {
       const n = { ...(x || {}), id: x?.id || uid(), lote_id: l.id, campana: $("#sCamp").value, cultivo: $("#sCult").value, hibrido: $("#sHib").value.trim(), fecha: $("#sFec").value || null, notas: $("#sNot").value.trim(), sub_id: $("#sSub")?.value || null };
@@ -473,7 +473,7 @@ function formRinde(l,pts,num,archivo){
     <div class="row"><div class="field"><label class="lbl" for="rUni">Unidad del dato</label><select id="rUni"><option value="t/ha">t/ha</option><option value="kg/ha">kg/ha</option><option value="qq/ha">qq/ha</option><option value="bu/ac">bu/ac</option></select></div>
     <div class="field"><label class="lbl" for="rMostrar">Mostrar en</label><select id="rMostrar"><option value="qq/ha">qq/ha</option><option value="t/ha">t/ha</option><option value="kg/ha">kg/ha</option></select></div></div>
     <div class="row"><div class="field"><label class="lbl" for="rCamp">Campaña</label><select id="rCamp">${campanas().map(c=>`<option ${c===S.campana?"selected":""}>${c}</option>`).join("")}</select></div>
-    <div class="field" style="flex:1"><label class="lbl" for="rCult">Cultivo</label><select id="rCult">${Object.keys(CULTIVOS).map(c=>`<option ${c===(s?.cultivo||"Maíz")?"selected":""}>${c}</option>`).join("")}</select></div></div>
+    <div class="field" style="flex:1"><label class="lbl" for="rCult">Cultivo</label><select id="rCult">${listaCultivos().map(c=>`<option ${c===(s?.cultivo||"Maíz")?"selected":""}>${esc(c)}</option>`).join("")}</select></div></div>
     <label class="row small"><input type="checkbox" id="rClip" checked> Recortar al contorno del lote</label>
     <label class="row small"><input type="checkbox" id="rFilt" checked> Descartar ceros y valores extremos (fuera de P2–P98)</label>
     <div id="rPrev" class="small muted"></div>

@@ -3,7 +3,7 @@
 const CULTIVOS = {
   "Maíz": "#E3B23C", "Soja": "#5E9E3F", "Soja 2da": "#9BC46A", "Trigo": "#D2B37A", "Cebada": "#B98B4E",
   "Girasol": "#F08A24", "Avena": "#A3B86C", "Sorgo": "#A85B3A", "Maíz de pastoreo": "#B8862B", "Pastura": "#2E8B7A", "Verdeo": "#6CC4A1",
-  "Ryegrass": "#3FA7C9", "Promoción de ryegrass": "#8FCFE0", "Campo natural": "#7D8F4E", "Barbecho": "#9C8B7A", "Otro": "#8E7CC3",
+  "Ryegrass": "#3FA7C9", "Promoción de ryegrass": "#8FCFE0", "Colza": "#E8D44D", "Centeno": "#B5A27A", "Moha": "#9DB35A", "Vicia": "#7E6BB0", "Arveja": "#6FA86A", "Campo natural": "#7D8F4E", "Barbecho": "#9C8B7A", "Otro": "#8E7CC3",
 };
 const SIN = "#7C8794";
 /* Categorías de labor: agrupan el catálogo y deciden qué datos se piden (las pulverizaciones llevan condiciones de aplicación) */
@@ -100,7 +100,35 @@ function cultivosDe(l, subId, c = S.campana) {
   const h = cultivoHeredado(l, subId, c); return h ? [h] : [];
 }
 function siembraDe(l, c = S.campana) { return cultivosDe(l, undefined, c)[0]; }
-const colorCult = (n) => CULTIVOS[n] || CULTIVOS.Otro;
+/* Cultivos propios: los que el usuario agrega se guardan con la siembra y aparecen en la lista desde entonces */
+const PALETA_EXTRA = ["#C0632E", "#4C8FBF", "#B04C7A", "#5FA39A", "#C9A227", "#7A8C2E", "#8C5AB5", "#D17A9A", "#3E7C59", "#A0522D"];
+function colorCult(n) { if (CULTIVOS[n]) return CULTIVOS[n]; if (!n) return CULTIVOS.Otro; let h = 0; for (const ch of String(n)) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return PALETA_EXTRA[h % PALETA_EXTRA.length]; }
+S.cultivosNuevos = [];
+function listaCultivos() {
+  const extra = [...new Set([...S.d.siembras.map((s) => s.cultivo), ...S.cultivosNuevos].filter((c) => c && !CULTIVOS[c]))].sort((a, b) => a.localeCompare(b, "es"));
+  return [...Object.keys(CULTIVOS).filter((k) => k !== "Otro"), ...extra, "Otro"];
+}
+function opcionesCultivos(sel) { return opciones(listaCultivos(), sel) + `<option value="__nuevo">+ Agregar otro cultivo…</option>`; }
+/* Al elegir "Agregar otro cultivo" en un select, pide el nombre y lo deja elegido */
+function selectCultivo(sel, alCambiar) {
+  let previo = sel.value;
+  sel.addEventListener("change", () => {
+    if (sel.value !== "__nuevo") { previo = sel.value; return; }
+    sel.value = previo;
+    modal(`<h4>Agregar un cultivo</h4><div class="field"><label class="lbl" for="ncNom">Nombre del cultivo</label><input id="ncNom" placeholder="Ej. Colza" autofocus></div>
+      <div class="small muted">Queda en la lista para todos los usuarios desde que lo cargás en un lote.</div>
+      <div class="pie"><button id="mNo">Cancelar</button><button class="primary" id="mOk">Agregar</button></div>`, (m, close) => {
+      const ok = () => {
+        const v = m.querySelector("#ncNom").value.trim().replace(/\s+/g, " "); if (!v) return;
+        const ya = listaCultivos().find((c) => norm(c) === norm(v)); const nombre = ya || v.charAt(0).toUpperCase() + v.slice(1);
+        if (!ya) S.cultivosNuevos.push(nombre);
+        const vacio = sel.querySelector('option[value=""]') ? '<option value="">Elegir cultivo…</option>' : "";
+        sel.innerHTML = vacio + opcionesCultivos(nombre); sel.value = nombre; previo = nombre; close(); alCambiar && alCambiar(nombre);
+      };
+      m.querySelector("#mNo").onclick = close; m.querySelector("#mOk").onclick = ok; m.querySelector("#ncNom").onkeydown = (e) => { if (e.key === "Enter") ok(); };
+    });
+  });
+}
 function colorDe(l) { const s = siembraDe(l); return s ? colorCult(s.cultivo) : SIN; }
 function colorSub(l, sub) { const s = cultivosDe(l, sub.id)[0]; return s ? colorCult(s.cultivo) : SIN; }
 function textoCultivos(l, subId) { return [...new Set(cultivosDe(l, subId).map((s) => s.cultivo))].join(" / "); }
