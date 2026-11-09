@@ -130,7 +130,7 @@ Vistas.insumos = function () {
   const nComp = (id) => S.d.comprobantes.filter((c) => c.proveedor_id === id).length;
   const nLab = (id) => S.d.labores.filter((l) => l.contratista_id === id).length;
   el.innerHTML = `<div class="page-in">
-    <div class="page-head"><h1>Insumos y stock del galpón</h1><div class="row"><button class="primary" id="bNP">+ Insumo</button><button id="bRem">📷 Cargar remito</button><button id="bCsvI" class="hide-m">Exportar stock</button></div></div>
+    <div class="page-head"><h1>Insumos y stock del galpón</h1><div class="row"><button class="primary" id="bNP">+ Insumo</button><button id="bRem">📷 Cargar remito</button><button id="bPed">🧾 Pedido de insumos</button><button id="bCsvI" class="hide-m">Exportar stock</button></div></div>
     ${!S.esquemaOk ? avisoEsquema() : ""}
     <div class="kpis"><div class="kpi"><span>Insumos</span><b>${S.d.productos.length}</b></div><div class="kpi"><span>Valor del stock</span><b>${fmtM(valor, "USD")}</b>${sinPrecio ? `<div class="small muted">${sinPrecio} insumo${sinPrecio > 1 ? "s" : ""} sin precio</div>` : ""}</div><div class="kpi ${negativos ? "alerta" : ""}"><span>Con stock negativo</span><b>${negativos}</b></div></div>
     <div class="filtros"><div class="field grow"><label class="lbl" for="fQ">Buscar</label><input id="fQ" placeholder="Nombre, marca o principio activo…" value="${esc(f.q)}"></div>
@@ -144,6 +144,7 @@ Vistas.insumos = function () {
   const $ = (q) => el.querySelector(q);
   $("#bNP").onclick = () => Insumos.formProducto(null);
   $("#bRem").onclick = () => document.getElementById("fFoto").click();
+  $("#bPed").onclick = () => Pedido.abrir();
   el.querySelectorAll("[data-ir]").forEach((b) => (b.onclick = () => irA(b.dataset.ir)));
   $("#bCsvI").onclick = () => descargar(`stock_galpon_${hoy()}.csv`, csv([["Insumo", "Tipo", "Principio activo", "Concentración", "Unidad", "Stock", "En órdenes abiertas", "Precio US$", "Valor US$"], ...S.d.productos.map((p) => { const h = hayDe(p.id); const pp = pr[p.id]; return [p.nombre, p.tipo, p.principio_activo, p.concentracion, p.unidad, +h.toFixed(3), st[p.id]?.ordenes || 0, pp ? +pp.usd.toFixed(4) : null, pp && h > 0 ? +(h * pp.usd).toFixed(2) : null]; })]), "text/csv");
   el.querySelectorAll("[data-p]").forEach((tr) => (tr.onclick = () => Insumos.detalle(productoDe(tr.dataset.p))));
