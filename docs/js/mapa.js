@@ -102,7 +102,7 @@ const Dib={pts:[],mk:[],poly:null,guia:null,ultDrag:0,
   opt:{},
   iniciar(opt={}){if(S.drawing){this.cancelar();return}
     this.opt={modo:"poly",titulo:"Dibujando lote",onDone:g=>formLote(null,g),...opt};
-    S.drawing=this;this.pts=[];this.mk=[];
+    S.drawing=this;this.pts=[];this.mk=[];this.lbl=null;this._raf=0;
     this.poly=(this.opt.modo==="linea"?L.polyline([],{color:"#F2C14E",weight:3,interactive:false}):L.polygon([],{color:"#F2C14E",weight:3,fillOpacity:.18,interactive:false})).addTo(map);
     this.guia=L.polyline([],{color:"#F2C14E",weight:2,dashArray:"6 6",interactive:false}).addTo(map);
     map.doubleClickZoom.disable();map.getContainer().style.cursor="crosshair";
@@ -110,7 +110,20 @@ const Dib={pts:[],mk:[],poly:null,guia:null,ultDrag:0,
     document.addEventListener("keydown",this._key);
     document.getElementById("btnDraw").textContent="✕ Cancelar dibujo";this.barra();},
   _click(e){if(Date.now()-this.ultDrag<350)return;this.agregar(e.latlng)},
-  _move(e){if(!this.pts.length){this.guia.setLatLngs([]);return}const a=this.pts[this.pts.length-1];this.guia.setLatLngs(this.pts.length>=2&&this.opt.modo!=="linea"?[a,e.latlng,this.pts[0]]:[a,e.latlng])},
+  _move(e){if(!this.pts.length){this.guia.setLatLngs([]);return}const a=this.pts[this.pts.length-1];this.guia.setLatLngs(this.pts.length>=2&&this.opt.modo!=="linea"?[a,e.latlng,this.pts[0]]:[a,e.latlng]);
+    /* Hectáreas en vivo junto al cursor, contando el punto donde está el mouse */
+    if(this.opt.modo==="linea"||this.pts.length<2)return;const ll=e.latlng;cancelAnimationFrame(this._raf);
+    this._raf=requestAnimationFrame(()=>{const h=this.haViva(ll);if(h==null)return;
+      if(!this.lbl)this.lbl=L.marker(ll,{interactive:false,keyboard:false,zIndexOffset:2000,icon:L.divIcon({className:"dib-ha",iconSize:null,html:"<div></div>"})}).addTo(map);
+      this.lbl.setLatLng(ll);const el=this.lbl.getElement();if(el)el.firstChild.textContent=fmt(h)+" ha"+(this.opt.clip?" en el lote":"")})},
+  /* Superficie del polígono dibujado (más un punto extra, el del cursor). Si es un sector, solo la parte dentro del lote. */
+  haViva(extra){const ps=extra?[...this.pts,extra]:this.pts;if(ps.length<3)return null;const c=ps.map(p=>[p.lng,p.lat]);c.push(c[0]);const g={type:"Polygon",coordinates:[c]};
+    if(!this.opt.clip)return haDe(g);try{const r=geoOp("intersect",feat(this.opt.clip),feat(g));return r?turf.area(r)/1e4:0}catch(e){return haDe(g)}},
+  /* Dividir con línea: cuántas hectáreas quedarían en cada parte */
+  piezasCorte(){if(this.opt.modo!=="linea"||!this.opt.cortar||this.pts.length<2)return null;
+    try{const corte=turf.buffer(feat({type:"LineString",coordinates:this.pts.map(p=>[p.lng,p.lat])}),0.15,{units:"meters"});const out=[];
+      for(const g of this.opt.cortar){let d=null;try{d=geoOp("difference",feat(g),corte)}catch(e){}const ps=piezas(d);if(ps.length>1)out.push(ps.map(p=>turf.area(feat(p))/1e4).sort((a,b)=>b-a))}
+      return out}catch(e){return null}},
   _key:e=>{if(!S.drawing)return;if(/INPUT|SELECT|TEXTAREA/.test(e.target.tagName))return;
     if(e.key==="Escape"){e.preventDefault();Dib.borrarUltimo()}
     else if(e.key==="Enter"){e.preventDefault();Dib.terminar()}
@@ -122,20 +135,23 @@ const Dib={pts:[],mk:[],poly:null,guia:null,ultDrag:0,
     m.on("click",ev=>{L.DomEvent.stopPropagation(ev);if(Date.now()-this.ultDrag<350)return;if(this.opt.modo!=="linea"&&this.mk.indexOf(m)===0&&this.pts.length>=3)this.terminar()});
     m.on("contextmenu",ev=>{L.DomEvent.stopPropagation(ev);L.DomEvent.preventDefault(ev);this.borrar(this.mk.indexOf(m))});
     this.mk.push(m);this.redibujar()},
-  borrar(k){if(k<0)return;map.removeLayer(this.mk[k]);this.mk.splice(k,1);this.pts.splice(k,1);if(this.mk[0])this.mk[0].setIcon(this.icono(this.opt.modo!=="linea"));this.guia.setLatLngs([]);this.redibujar()},
+  borrar(k){if(k<0)return;if(this.lbl&&this.pts.length<=3){map.removeLayer(this.lbl);this.lbl=null}map.removeLayer(this.mk[k]);this.mk.splice(k,1);this.pts.splice(k,1);if(this.mk[0])this.mk[0].setIcon(this.icono(this.opt.modo!=="linea"));this.guia.setLatLngs([]);this.redibujar()},
   borrarUltimo(){if(!this.pts.length){this.cancelar();return}this.borrar(this.pts.length-1)},
   redibujar(barra=true){this.poly.setLatLngs(this.pts);if(barra)this.barra()},
   ha(){if(this.pts.length<3)return 0;const c=this.pts.map(p=>[p.lng,p.lat]);c.push(c[0]);return haDe({type:"Polygon",coordinates:[c]})},
   barra(){let el=document.getElementById("dibBarra");
     if(!el){el=document.createElement("div");el.id="dibBarra";el.style.cssText="position:absolute;top:12px;left:56px;right:12px;z-index:650;background:var(--panel);color:var(--ink);border:2px solid var(--sel);border-radius:8px;padding:10px 12px;box-shadow:0 2px 12px rgba(0,0,0,.3);max-width:560px;display:flex;flex-direction:column;gap:8px";document.querySelector(".mapwrap").appendChild(el)}
     const n=this.pts.length;const lin=this.opt.modo==="linea";const min=lin?2:3;
-    el.innerHTML=`<div class="row" style="justify-content:space-between"><b>${esc(this.opt.titulo)}</b><span class="num small">${n} punto${n!==1?"s":""}${!lin&&n>=3?" · "+fmt(this.ha())+" ha":""}</span></div>
+    const h=!lin&&n>=3?this.haViva():null;const pc=lin?this.piezasCorte():null;
+    el.innerHTML=`<div class="row" style="justify-content:space-between;align-items:baseline"><b>${esc(this.opt.titulo)}</b><span class="small muted">${n} punto${n!==1?"s":""}</span></div>
+      ${h!=null?`<div class="row" style="gap:8px;align-items:baseline"><span class="num" style="font-size:22px;font-weight:600">${fmt(h)} ha</span><span class="small muted">${this.opt.clip?`dentro del lote (de ${fmt(haDe(this.opt.clip))} ha)`:"marcadas"}</span></div>`:!lin?`<div class="small muted">Las hectáreas aparecen desde el tercer punto${matchMedia("(hover:hover)").matches?"; mientras movés el mouse se ven al lado del cursor":""}.</div>`:""}
+      ${pc&&pc.length?`<div class="small">Quedarían: ${pc.map(a=>a.map(x=>`<b class="num">${fmt(x)} ha</b>`).join(" + ")).join(" · ")}</div>`:lin&&n>=2?`<div class="small muted">La línea todavía no corta el lote de lado a lado.</div>`:""}
       <div class="small muted">${lin?"Trazá una línea que cruce el lote de lado a lado; podés quebrarla con varios puntos. Arrastrá un punto para moverlo · <b>Esc</b> borra el último · clic derecho sobre un punto lo borra · <b>Enter</b> corta":"Clic agrega un punto · arrastrá un punto para moverlo · <b>Esc</b> borra el último · clic derecho sobre un punto lo borra · <b>Enter</b> o clic en el punto amarillo cierra"}</div>
       <div class="row"><button id="dUndo" ${n?"":"disabled"}>↶ Borrar último (Esc)</button><button class="primary" id="dOk" ${n>=min?"":"disabled"}>${lin?"Cortar":"Terminar"} (Enter)</button><button class="ghost" id="dNo">Cancelar</button></div>`;
     el.querySelector("#dUndo").onclick=()=>this.borrarUltimo();el.querySelector("#dOk").onclick=()=>this.terminar();el.querySelector("#dNo").onclick=()=>this.cancelar();
     L.DomEvent.disableClickPropagation(el)},
   salir(){map.off("click",this._click,this);map.off("mousemove",this._move,this);document.removeEventListener("keydown",this._key);
-    this.mk.forEach(m=>map.removeLayer(m));map.removeLayer(this.poly);map.removeLayer(this.guia);this.mk=[];
+    this.mk.forEach(m=>map.removeLayer(m));map.removeLayer(this.poly);map.removeLayer(this.guia);this.mk=[];cancelAnimationFrame(this._raf);if(this.lbl){map.removeLayer(this.lbl);this.lbl=null}
     map.doubleClickZoom.enable();map.getContainer().style.cursor="";document.getElementById("dibBarra")?.remove();
     document.getElementById("btnDraw").textContent="✎ Dibujar lote";setTimeout(()=>{S.drawing=null},50)},
   cancelar(){this.pts=[];this.salir()},
@@ -183,6 +199,22 @@ function importarPreview(polys,fname){
 
 
 /* ============ Subdivisiones ============ */
+/* Operación de geometría; si la librería falla por un detalle numérico de los bordes, reintenta con coordenadas redondeadas (~10 cm) */
+function geoOp(op, a, b) { try { return turf[op](a, b); } catch (e) { const t = (f) => turf.truncate(f, { precision: 6, mutate: false }); return turf[op](t(a), t(b)); } }
+/* Une dos sectores del lote. Primero como "el lote menos los demás sectores", que respeta los bordes exactos. */
+function unirSectores(l, dst, sb) {
+  const esperado = haDe(dst.geom) + haDe(sb.geom);
+  const otros = l.subs.filter((s) => s.id !== dst.id && s.id !== sb.id);
+  const intentos = [
+    () => { let r = feat(l.geom); for (const o of otros) { r = geoOp("difference", r, feat(o.geom)); if (!r) return null; } return r; },
+    () => { const u = geoOp("union", feat(dst.geom), feat(sb.geom)); return geoOp("intersect", u, feat(l.geom)) || u; },
+    () => { const t = (g) => turf.truncate(feat(g), { precision: 6 }); const u = turf.union(turf.buffer(t(dst.geom), 0.2, { units: "meters" }), turf.buffer(t(sb.geom), 0.2, { units: "meters" })); return turf.intersect(u, t(l.geom)) || u; },
+  ];
+  for (const f of intentos) {
+    try { const r = f(); if (!r) continue; const ps = piezas(r); if (!ps.length) continue; const g = multi(ps); const ha = haDe(g); if (Math.abs(ha - esperado) <= Math.max(0.05, esperado * 0.03)) return g; } catch (e) {}
+  }
+  return null;
+}
 const MIN_M2 = 300;
 function piezas(f) { if (!f) return []; return turf.flatten(f).features.filter((p) => turf.area(p) >= MIN_M2).map((p) => p.geometry); }
 const multi = (ps) => ps.length === 1 ? ps[0] : { type: "MultiPolygon", coordinates: ps.flatMap((p) => p.type === "Polygon" ? [p.coordinates] : p.coordinates) };
@@ -192,7 +224,7 @@ async function dividirConLinea(l, line) {
   let corte; try { corte = turf.buffer(feat(line), 0.15, { units: "meters" }); } catch (e) { toast("No pude usar esa línea."); return; }
   const base = l.subs.length ? l.subs : [{ id: null, nombre: null, geom: l.geom }]; const nuevos = []; const copias = []; let cortados = 0;
   for (const t of base) {
-    let d = null; try { d = turf.difference(feat(t.geom), corte); } catch (e) {}
+    let d = null; try { d = geoOp("difference", feat(t.geom), corte); } catch (e) {}
     const ps = piezas(d).sort((a, b) => turf.area(feat(b)) - turf.area(feat(a)));
     if (ps.length < 2) { nuevos.push(t); continue; }
     cortados++;
@@ -204,12 +236,12 @@ async function dividirConLinea(l, line) {
   dibujarLotes(); render(); toast(`Quedan ${l.subs.length} sectores.`);
 }
 async function agregarSector(l, poly) {
-  let g = null; try { g = turf.intersect(feat(l.geom), feat(poly)); } catch (e) {}
+  let g = null; try { g = geoOp("intersect", feat(l.geom), feat(poly)); } catch (e) {}
   const ps = piezas(g); if (!ps.length) { toast("El sector tiene que quedar dentro del lote."); return; }
   const sgeom = multi(ps); const nuevo = { id: uid(), nombre: "", geom: sgeom };
   const base = l.subs.length ? l.subs : [{ id: null, nombre: "Resto", geom: l.geom }]; const nuevos = [];
   for (const t of base) {
-    let d = null; try { d = turf.difference(feat(t.geom), feat(sgeom)); } catch (e) {}
+    let d = null; try { d = geoOp("difference", feat(t.geom), feat(sgeom)); } catch (e) {}
     const r = piezas(d); if (!r.length) continue;
     if (t.id) nuevos.push({ ...t, geom: multi(r) }); else nuevos.push({ id: uid(), nombre: "Resto", geom: multi(r) });
   }
@@ -241,7 +273,7 @@ function borrarSub(l, sb) {
     m.querySelector("#mNo").onclick = close;
     m.querySelector("#mOk").onclick = async () => {
       const dst = otros.find((o) => o.id === m.querySelector("#sbDest").value);
-      try { const u = turf.union(turf.buffer(feat(dst.geom), 0.2, { units: "meters" }), turf.buffer(feat(sb.geom), 0.2, { units: "meters" })); const ui = turf.intersect(u, feat(l.geom)); dst.geom = (ui || u).geometry; } catch (e) { toast("No pude unir los sectores."); return; }
+      const g = unirSectores(l, dst, sb); if (!g) { toast("No pude unir los sectores. Probá sumarlo a otro sector.", 6000); return; } dst.geom = g;
       l.subs = otros; await guardarLote(l); await borrarSiembrasDeSubs(l, new Set([sb.id])); close(); dibujarLotes(); render();
     };
   });
@@ -249,8 +281,8 @@ function borrarSub(l, sb) {
 function ajustarSubsAContorno(l) {
   if (!l.subs.length) return new Set();
   const out = [];
-  for (const sb of l.subs) { let g = null; try { g = turf.intersect(feat(sb.geom), feat(l.geom)); } catch (e) {} const ps = piezas(g); if (ps.length) out.push({ ...sb, geom: multi(ps) }); }
-  let resto = feat(l.geom); for (const sb of out) { try { resto = turf.difference(resto, feat(sb.geom)); } catch (e) {} if (!resto) break; }
+  for (const sb of l.subs) { let g = null; try { g = geoOp("intersect", feat(sb.geom), feat(l.geom)); } catch (e) {} const ps = piezas(g); if (ps.length) out.push({ ...sb, geom: multi(ps) }); }
+  let resto = feat(l.geom); for (const sb of out) { try { resto = geoOp("difference", resto, feat(sb.geom)); } catch (e) {} if (!resto) break; }
   for (const g of piezas(resto)) out.push({ id: uid(), nombre: "", geom: g });
   const ids = new Set(out.map((s) => s.id)); const quitados = new Set(l.subs.filter((s) => !ids.has(s.id)).map((s) => s.id));
   l.subs = out; for (const sb of l.subs) if (!sb.nombre) sb.nombre = proximoNombre(l);
@@ -404,8 +436,8 @@ function bindLote(l) {
   $("bAddS").onclick = () => formSiembra(l);
   document.querySelectorAll("[data-es]").forEach((b) => (b.onclick = () => formSiembra(l, b.dataset.es)));
   document.querySelectorAll("[data-cambiar]").forEach((b) => (b.onclick = () => formSiembra(l, null, { sub_id: b.dataset.cambiar || null })));
-  $("bLinea").onclick = () => Dib.iniciar({ modo: "linea", titulo: "Dividir " + l.nombre, onDone: (g) => dividirConLinea(l, g) });
-  $("bSector").onclick = () => Dib.iniciar({ titulo: "Sector en " + l.nombre, onDone: (g) => agregarSector(l, g) });
+  $("bLinea").onclick = () => Dib.iniciar({ modo: "linea", titulo: "Dividir " + l.nombre, cortar: l.subs.length ? l.subs.map((s) => s.geom) : [l.geom], onDone: (g) => dividirConLinea(l, g) });
+  $("bSector").onclick = () => Dib.iniciar({ titulo: "Sector en " + l.nombre, clip: l.geom, onDone: (g) => agregarSector(l, g) });
   document.querySelectorAll("[data-sbn]").forEach((b) => (b.onclick = () => formSub(l, l.subs.find((x) => x.id === b.dataset.sbn))));
   document.querySelectorAll("[data-sbd]").forEach((b) => (b.onclick = () => borrarSub(l, l.subs.find((x) => x.id === b.dataset.sbd))));
   $("bAddR").onclick = () => { S.rindeLote = l; document.getElementById("fRinde").click(); };
