@@ -135,6 +135,76 @@ const Ordenes = {
   },
 };
 
+/* ============ Carga de camioneta: total de insumos de las órdenes abiertas que estén prendidas ============ */
+const Carga = {
+  /* Las órdenes apagadas se guardan en este dispositivo; las nuevas entran prendidas */
+  fuera() { try { return new Set(JSON.parse(localStorage.getItem("fc-carga-fuera") || "[]")); } catch (e) { return new Set(); } },
+  guardarFuera(s) { try { localStorage.setItem("fc-carga-fuera", JSON.stringify([...s])); } catch (e) {} },
+  esAbierta: (o) => o.estado === "pendiente" || o.estado === "en_curso",
+  tieneInsumos: (o) => (o.insumos || []).some((i) => i.producto_id || i.nombre),
+  candidatas() {
+    return S.d.ordenes.filter((o) => Carga.esAbierta(o) && Carga.tieneInsumos(o))
+      .sort((a, b) => (a.fecha_prevista || "9999").localeCompare(b.fecha_prevista || "9999") || (a.numero || 0) - (b.numero || 0));
+  },
+  prendidas() { const f = Carga.fuera(); return Carga.candidatas().filter((o) => !f.has(o.id)); },
+  calcular(ordenes) {
+    const st = stockProductos(); const tot = {};
+    for (const o of ordenes) for (const i of o.insumos || []) {
+      const k = i.producto_id || (i.nombre ? "n:" + norm(i.nombre) : null); if (!k) continue;
+      const q = Number(i.cantidad != null ? i.cantidad : cantidadInsumo(i, o.superficie_ha).cant) || 0;
+      const p = i.producto_id ? productoDe(i.producto_id) : null;
+      const a = (tot[k] ??= { id: i.producto_id || null, nombre: p?.nombre || i.nombre, unidad: p?.unidad || dosisABase(1, i.unidad)[1], tipo: p?.tipo || "", total: 0, por: [] });
+      a.total += q; a.por.push({ n: o.numero, q });
+    }
+    return Object.values(tot).map((a) => { const s = a.id ? st[a.id] : null; return { ...a, hay: s ? s.entra - s.sale : null }; })
+      .sort((a, b) => (a.tipo || "").localeCompare(b.tipo || "") || a.nombre.localeCompare(b.nombre));
+  },
+  /* Para cargar se redondea hacia arriba: bolsas y unidades enteras, el resto a un decimal */
+  cant(q, u) { const r = u === "u" ? Math.ceil(q - 1e-9) : Math.ceil(q * 10 - 1e-9) / 10; return fmt(r, r % 1 ? 1 : 0); },
+  unidad: (u) => (u === "u" ? "bolsas/u" : u),
+  lineaOrden: (o) => `N° ${o.numero} · ${nombreUbic(o.lote_id, o.sub_id)} · ${nombreLabor(o)} · ${fmt(o.superficie_ha, 1)} ha`,
+  texto(filas, ordenes) {
+    return [`*Carga de camioneta · Flores Chicas*`, `Fecha: ${fechaAR(hoy())}`, "",
+      ...filas.map((r) => `• ${r.nombre}: ${Carga.cant(r.total, r.unidad)} ${Carga.unidad(r.unidad)}`), "",
+      `Para las órdenes:`, ...ordenes.map((o) => `- ${Carga.lineaOrden(o)}`)].join("\n");
+  },
+  html(filas, ordenes) {
+    const td = "padding:7px 4px;border-bottom:1px solid #ccc";
+    return `<div style="font:14px/1.5 'Source Sans 3',Arial,sans-serif;color:#000;max-width:720px;margin:0 auto;padding:10px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid #000;padding-bottom:6px"><div style="font:800 22px Archivo,Arial">Carga de camioneta</div><div>Flores Chicas · ${fechaAR(hoy())}</div></div>
+      <table style="width:100%;border-collapse:collapse;margin:12px 0"><tr style="border-bottom:1px solid #000"><th style="text-align:left;padding:4px">Producto</th><th style="text-align:right;padding:4px">Total a cargar</th><th style="text-align:left;padding:4px">Por orden</th><th style="padding:4px;width:60px">Cargado</th></tr>
+        ${filas.map((r) => `<tr><td style="${td}"><b>${esc(r.nombre)}</b></td><td style="${td};text-align:right;white-space:nowrap"><b>${Carga.cant(r.total, r.unidad)} ${esc(Carga.unidad(r.unidad))}</b></td><td style="${td};font-size:12px">${r.por.map((x) => `N° ${x.n}: ${Carga.cant(x.q, r.unidad)}`).join(" · ")}</td><td style="${td};text-align:center"><span style="display:inline-block;width:16px;height:16px;border:1.5px solid #000"></span></td></tr>`).join("")}</table>
+      <p style="margin:14px 0 4px"><b>Órdenes incluidas</b></p>
+      ${ordenes.map((o) => `<div>${esc(Carga.lineaOrden(o))}${o.contratista ? ` · ${esc(o.contratista)}` : ""}</div>`).join("")}</div>`;
+  },
+  /* Tarjeta con el total, dentro de la página de órdenes */
+  pintar(el) {
+    const cand = Carga.candidatas(); const ords = Carga.prendidas(); const filas = Carga.calcular(ords);
+    const ha = ords.reduce((s, o) => s + (Number(o.superficie_ha) || 0), 0);
+    el.hidden = !cand.length; if (!cand.length) return;
+    el.innerHTML = `<div class="row" style="justify-content:space-between;align-items:flex-start">
+        <div class="col" style="gap:2px"><h2>🛻 Para cargar en la camioneta</h2><div class="small muted">Suma de las órdenes prendidas: <b>${ords.length} de ${cand.length}</b>${ords.length ? ` · ${fmt(ha, 1)} ha` : ""}. Prendé o apagá cada orden con la llave de la lista.</div></div>
+        <span class="row"><button class="small ghost" id="cgTodas">Prender todas</button><button class="small ghost" id="cgNing">Apagar todas</button></span></div>
+      ${!ords.length ? `<div class="empty" style="padding:10px">No hay órdenes prendidas. Prendé las que vas a hacer y acá aparece qué cargar.</div>`
+        : `<div class="tablewrap"><table class="t"><tr><th>Insumo</th><th class="right">Total a cargar</th><th class="right">Galpón</th></tr>
+          ${filas.map((r) => `<tr><td><b>${esc(r.nombre)}</b><div class="small muted">${r.por.map((x) => `N° ${x.n}: ${Carga.cant(x.q, r.unidad)}`).join(" · ")}</div></td>
+            <td class="num right" style="white-space:nowrap"><b class="carga-tot">${Carga.cant(r.total, r.unidad)}</b> ${esc(Carga.unidad(r.unidad))}</td>
+            <td class="num right">${r.hay == null ? "—" : r.total > r.hay + 1e-6 ? `<span class="pill bad" title="En el galpón hay ${fmt(Math.max(0, r.hay), 1)}">faltan ${Carga.cant(r.total - Math.max(0, r.hay), r.unidad)}</span>` : `<span class="small muted">${fmt(r.hay, 1)}</span>`}</td></tr>`).join("")}</table></div>
+          <div class="row"><button id="cgCop">Copiar texto</button><button id="cgWa">Enviar por WhatsApp</button><button id="cgImp">Imprimir</button></div>`}`;
+    const $ = (q) => el.querySelector(q);
+    const todas = (on) => { const f = Carga.fuera(); for (const o of cand) on ? f.delete(o.id) : f.add(o.id); Carga.guardarFuera(f); Vistas.ordenes(); };
+    $("#cgTodas").onclick = () => todas(true); $("#cgNing").onclick = () => todas(false);
+    if (!ords.length) return;
+    $("#cgCop").onclick = async () => { try { await navigator.clipboard.writeText(Carga.texto(filas, ords)); toast("Texto copiado"); } catch (e) { toast("No se pudo copiar."); } };
+    $("#cgImp").onclick = () => imprimir(Carga.html(filas, ords));
+    $("#cgWa").onclick = async () => {
+      const t = Carga.texto(filas, ords);
+      if (navigator.share && matchMedia("(max-width:820px)").matches) { try { await navigator.share({ text: t }); return; } catch (e) { if (e.name === "AbortError") return; } }
+      window.open(`https://wa.me/?text=${encodeURIComponent(t)}`, "_blank", "noopener");
+    };
+  },
+};
+
 Vistas.ordenes = function () {
   const el = document.getElementById("v-ordenes");
   const f = S.filtroOrd || (S.filtroOrd = { estado: "abiertas" });
@@ -142,17 +212,32 @@ Vistas.ordenes = function () {
     .sort((a, b) => (a.fecha_prevista || "9999").localeCompare(b.fecha_prevista || "9999") || (b.numero || 0) - (a.numero || 0));
   const abiertas = S.d.ordenes.filter((o) => o.estado === "pendiente" || o.estado === "en_curso");
   const atrasadas = abiertas.filter((o) => o.fecha_prevista && o.fecha_prevista < hoy()).length;
+  /* Limpia de la lista de apagadas las órdenes que ya no están abiertas */
+  const fuera = Carga.fuera(); const vivas = new Set(abiertas.map((o) => o.id)); let cambio = false;
+  for (const id of [...fuera]) if (!vivas.has(id)) { fuera.delete(id); cambio = true; }
+  if (cambio) Carga.guardarFuera(fuera);
+  const conLlave = (o) => Carga.esAbierta(o) && Carga.tieneInsumos(o);
+  const verCarga = f.estado === "abiertas" || f.estado === "todas";
   el.innerHTML = `<div class="page-in">
     <div class="page-head"><div class="col" style="gap:4px"><button class="ghost small" id="bVolver" style="align-self:flex-start;padding:2px 6px">← Volver al mapa</button><h1>Órdenes de trabajo</h1></div><div class="row"><button id="bPed">🧾 Pedido de insumos</button><button class="primary" id="bNO">+ Orden de trabajo</button></div></div>
     <div class="kpis"><div class="kpi"><span>Abiertas</span><b>${abiertas.length}</b></div><div class="kpi ${atrasadas ? "alerta" : ""}"><span>Con fecha vencida</span><b>${atrasadas}</b></div></div>
     <div class="filtros"><div class="field"><label class="lbl" for="oF">Mostrar</label><select id="oF">${opciones([["abiertas", "Abiertas"], ["realizada", "Realizadas"], ["cancelada", "Canceladas"], ["todas", "Todas"]], f.estado)}</select></div></div>
-    ${lista.length ? `<div class="card" style="padding:0"><div class="tablewrap"><table class="t"><tr><th>N°</th><th>Prevista</th><th>Lote</th><th>Labor</th><th class="hide-m">Insumos</th><th class="right">ha</th><th>Estado</th></tr>
-      ${lista.map((o) => `<tr class="click" data-o="${o.id}"><td class="num">${o.numero}</td><td class="num">${fechaAR(o.fecha_prevista)}${o.fecha_prevista && o.fecha_prevista < hoy() && (o.estado === "pendiente" || o.estado === "en_curso") ? ' <span class="pill bad">vencida</span>' : ""}</td><td>${esc(nombreUbic(o.lote_id, o.sub_id))}</td><td>${esc(nombreLabor(o))}${o.contratista ? `<div class="small muted">${esc(o.contratista)}</div>` : ""}</td><td class="small hide-m">${esc(textoInsumos(o)) || "—"}</td><td class="num right">${fmt(o.superficie_ha, 1)}</td><td>${pillOrden(o.estado)}</td></tr>`).join("")}</table></div></div>`
+    ${lista.length ? `<div class="card" style="padding:0"><div class="tablewrap"><table class="t"><tr>${verCarga ? '<th title="Incluir en la carga de la camioneta">Carga</th>' : ""}<th>N°</th><th>Prevista</th><th>Lote</th><th>Labor</th><th class="hide-m">Insumos</th><th class="right">ha</th><th>Estado</th></tr>
+      ${lista.map((o) => `<tr class="click${verCarga && conLlave(o) && fuera.has(o.id) ? " apagada" : ""}" data-o="${o.id}">${verCarga ? `<td class="tgl-td">${conLlave(o) ? `<label class="tgl" title="Incluir en la carga de la camioneta"><input type="checkbox" data-carga="${o.id}" ${fuera.has(o.id) ? "" : "checked"} aria-label="Incluir la orden N° ${o.numero} en la carga"><span></span></label>` : ""}</td>` : ""}<td class="num">${o.numero}</td><td class="num">${fechaAR(o.fecha_prevista)}${o.fecha_prevista && o.fecha_prevista < hoy() && (o.estado === "pendiente" || o.estado === "en_curso") ? ' <span class="pill bad">vencida</span>' : ""}</td><td>${esc(nombreUbic(o.lote_id, o.sub_id))}</td><td>${esc(nombreLabor(o))}${o.contratista ? `<div class="small muted">${esc(o.contratista)}</div>` : ""}</td><td class="small hide-m">${esc(textoInsumos(o)) || "—"}</td><td class="num right">${fmt(o.superficie_ha, 1)}</td><td>${pillOrden(o.estado)}</td></tr>`).join("")}</table></div></div>`
       : `<div class="empty">${f.estado === "abiertas" ? "No hay órdenes abiertas." : "No hay órdenes con ese estado."} Una orden indica qué hacer en un lote, con qué productos y dosis; se imprime o se manda por WhatsApp al contratista, y al marcarla realizada queda registrada como labor.</div>`}
+    ${verCarga ? '<div class="card carga" id="cargaCam" hidden></div>' : ""}
   </div>`;
   el.querySelector("#bNO").onclick = () => Ordenes.form(null);
   el.querySelector("#bPed").onclick = () => Pedido.abrir();
   el.querySelector("#bVolver").onclick = () => irA("mapa");
   el.querySelector("#oF").onchange = (e) => { f.estado = e.target.value; Vistas.ordenes(); };
-  el.querySelectorAll("[data-o]").forEach((tr) => (tr.onclick = () => Ordenes.ver(S.d.ordenes.find((o) => o.id === tr.dataset.o))));
+  el.querySelectorAll("tr[data-o]").forEach((tr) => (tr.onclick = () => Ordenes.ver(S.d.ordenes.find((o) => o.id === tr.dataset.o))));
+  const tarjeta = el.querySelector("#cargaCam");
+  if (tarjeta) Carga.pintar(tarjeta);
+  /* La llave prende o apaga la orden en la carga sin abrirla */
+  el.querySelectorAll(".tgl-td").forEach((td) => (td.onclick = (e) => e.stopPropagation()));
+  el.querySelectorAll("[data-carga]").forEach((ck) => (ck.onchange = () => {
+    const fs = Carga.fuera(); ck.checked ? fs.delete(ck.dataset.carga) : fs.add(ck.dataset.carga); Carga.guardarFuera(fs);
+    ck.closest("tr").classList.toggle("apagada", !ck.checked); Carga.pintar(tarjeta);
+  }));
 };
