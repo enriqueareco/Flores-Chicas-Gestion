@@ -103,7 +103,7 @@ const AMB = {
   /* ---------- Capas e índice ---------- */
   async capasDatos(l, a, prog) {
     const g = a.grid, N = g.W * g.H; const mask = AMB.mascara(l, g); let nm = 0; for (const x of mask) nm += x;
-    if (!Object.keys(S.ndvi.series || {}).length) S.ndvi.series = (await Cache.get("ndvi:" + l.id)) || {};
+    if (!Object.keys(S.ndvi.series || {}).length) S.ndvi.series = (await Cache.get("ndvi2:" + l.id)) || {};
     const out = []; let i = 0;
     for (const c of a.capas) {
       i++; prog?.(`Preparando capa ${i} de ${a.capas.length}${c.tipo === "ndvi" ? ": NDVI del " + fechaAR(c.fecha) : ": rinde " + c.campana}…`);
@@ -143,7 +143,9 @@ const AMB = {
     const g = a.grid, N = g.W * g.H; const idx = a._idx; const mask = new Uint8Array(N); for (let k = 0; k < N; k++) mask[k] = idx[k] === idx[k] ? 1 : 0;
     const sm = AMB.suavizar(idx, g, mask, +a.suavizado || 0);
     const vals = []; for (let k = 0; k < N; k++) if (mask[k]) vals.push(sm[k]);
-    const s = Float64Array.from(vals).sort(); const n = +a.n;
+    /* Los extremos (bordes, alambrados, aguadas) se recortan al P1–P99 para que no se queden con un ambiente */
+    const s0 = Float64Array.from(vals).sort(); const lo = cuantil(s0, 0.01), hi = cuantil(s0, 0.99);
+    const s = s0.map((x) => Math.min(hi, Math.max(lo, x))); const n = +a.n;
     const cortes = a.metodo === "cuantiles" ? Array.from({ length: n - 1 }, (_, i) => cuantil(s, (i + 1) / n)) : AMB.kmeans(s, n);
     const cls = new Uint8Array(N).fill(255);
     for (let k = 0; k < N; k++) if (mask[k]) { let c = 0; while (c < n - 1 && sm[k] >= cortes[c]) c++; cls[k] = c; }

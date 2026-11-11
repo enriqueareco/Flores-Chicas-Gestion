@@ -561,7 +561,7 @@ async function buscarNDVI(l,verano=false){
     const use=cont.length?cont:items;const porDia=new Map();
     for(const it of use){const d=it.properties.datetime.slice(0,10);if(verano&&![12,1,2,3].includes(+d.slice(5,7)))continue;const prev=porDia.get(d);if(!prev||it.properties["eo:cloud_cover"]<prev.properties["eo:cloud_cover"])porDia.set(d,it)}
     S.ndvi.items=[...porDia.values()].sort((a,b)=>b.properties.datetime.localeCompare(a.properties.datetime));
-    const cache=await Cache.get("ndvi:"+l.id)||{};S.ndvi.series=cache;
+    const cache=await Cache.get("ndvi2:"+l.id)||{};S.ndvi.series=cache;
     info.innerHTML=S.ndvi.items.length?`<span class="small muted">${S.ndvi.items.length} fechas disponibles. Elegí una para ver el NDVI del lote.</span>`:`<span class="small">No hay imágenes con esos filtros. Probá ampliar el rango o el % de nubes.</span>`;
     document.getElementById("bSerie").disabled=!S.ndvi.items.length;pintarFechas(l);pintarSerie(l);
   }catch(err){console.error(err);info.innerHTML=`<div class="empty">No pude consultar el catálogo satelital (${esc(err.message)}). Revisá la conexión a internet.</div>`}
@@ -644,8 +644,10 @@ async function calcNDVI(l,it){
   const [R,N,C]=await Promise.all([ventana(red.href,ubb),ventana(nir.href,ubb),scl?ventana(scl.href,ubb).catch(()=>null):null]);
   const band=a=>a?.["raster:bands"]?.[0]||{};const bl=parseFloat(it.properties["s2:processing_baseline"]||"0");
   const offApplied=it.properties["earthsearch:boa_offset_applied"]===true;
-  const sc=b=>band(b).scale??0.0001,of=b=>band(b).offset??(!offApplied&&bl>=4?-0.1:0);
-  const sR=sc(red),oR=of(red),sN=sc(nir),oN=of(nir);
+  /* Si Earth Search ya sacó el desplazamiento de -0,1 (o los valores muestran que no lo traen), no se resta de nuevo */
+  const sinOffset=X=>{let n=0,b=0;for(let i=0;i<X.data.length;i+=5){const v=X.data[i];if(!v)continue;n++;if(v<1000)b++}return n>0&&b/n>0.02};
+  const sc=b=>band(b).scale??0.0001,of=(b,X)=>offApplied||sinOffset(X)?0:(band(b).offset??(bl>=4?-0.1:0));
+  const sR=sc(red),oR=of(red,R),sN=sc(nir),oN=of(nir,N);
   const lat0=(bb[1]+bb[3])/2;const dLat=10/111320,dLon=10/(111320*Math.cos(lat0*Math.PI/180));
   const W=Math.max(1,Math.ceil((bb[2]-bb[0])/dLon)),H=Math.max(1,Math.ceil((bb[3]-bb[1])/dLat));
   const raw=new Float32Array(W*H).fill(NaN);const vals=[];let tot=0,nubes=0;const BAD=new Set([0,1,3,8,9,10,11]);
@@ -654,18 +656,18 @@ async function calcNDVI(l,it){
     if(C){const cx=Math.floor((E-C.ox)/C.rx)-C.x0,cy=Math.floor((Nn-C.oy)/C.ry)-C.y0;const s=(cx>=0&&cy>=0&&cx<C.w&&cy<C.h)?C.data[cy*C.w+cx]:0;if(BAD.has(s)){nubes++;raw[k]=NUBE;continue}}
     const px=Math.floor((E-R.ox)/R.rx)-R.x0,py=Math.floor((Nn-R.oy)/R.ry)-R.y0;if(px<0||py<0||px>=R.w||py>=R.h)continue;
     const dr=R.data[py*R.w+px],dn=N.data[py*N.w+px];if(!dr||!dn)continue;
-    const r=dr*sR+oR,n=dn*sN+oN;if(n+r<=0)continue;const v=(n-r)/(n+r);raw[k]=v;vals.push(v)}}
+    const r=dr*sR+oR,n=dn*sN+oN;if(n+r<=0)continue;const v=(n-r)/(n+r);if(v<-1||v>1)continue;raw[k]=v;vals.push(v)}}
   const res={fecha:it.properties.datetime.slice(0,10),sat:satNom(it.properties.platform),W,H,raw,valido:tot?vals.length/tot*100:0,nubes:tot?nubes/tot*100:0,bounds:[[bb[3]-H*dLat,bb[0]],[bb[3],bb[0]+W*dLon]]};
   if(vals.length>tot*.25){const s=Float32Array.from(vals).sort();res.mean=vals.reduce((a,b)=>a+b,0)/vals.length;res.p2=cuantil(s,.02);res.p10=cuantil(s,.1);res.p50=cuantil(s,.5);res.p90=cuantil(s,.9);res.p98=cuantil(s,.98)}
   else{res.mean=null;if(vals.length){const s=Float32Array.from(vals).sort();res.p2=cuantil(s,.02);res.p98=cuantil(s,.98)}}
   return res;
 }
 async function obtenerNDVI(l,it,conRaw){const c=S.ndvi.series[it.id];if(c&&c.W&&(!conRaw||c.raw))return c;
-  const r=await calcNDVI(l,it);const cache=await Cache.get("ndvi:"+l.id)||{};
+  const r=await calcNDVI(l,it);const cache=await Cache.get("ndvi2:"+l.id)||{};
   for(const k of Object.keys(cache)){if(cache[k].img!==undefined)delete cache[k].img;if(!cache[k].W)delete cache[k]}
   cache[it.id]=conRaw?r:{...r,raw:null};
   const conDatos=Object.keys(cache).filter(k=>k!==it.id&&cache[k].raw);if(conDatos.length>15)for(const k of conDatos.slice(0,conDatos.length-15))cache[k].raw=null;
-  await Cache.set("ndvi:"+l.id,cache);S.ndvi.series=cache;return r}
+  await Cache.set("ndvi2:"+l.id,cache);S.ndvi.series=cache;return r}
 async function verNDVI(l,id){const it=S.ndvi.items.find(x=>x.id===id);if(!it)return;const info=document.getElementById("nInfo");
   info.innerHTML='<span class="small muted">Descargando bandas y calculando NDVI del lote…</span>';
   try{let r=S.ndvi.series[id];if(!r||!r.raw||!r.W)r=await obtenerNDVI(l,it,true);
