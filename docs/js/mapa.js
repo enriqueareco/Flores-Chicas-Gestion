@@ -49,7 +49,7 @@ function iniciarMapa() {
   document.getElementById("btnKmz").onclick = () => document.getElementById("fKmz").click();
 }
 
-const hueco = (l) => S.sel === l.id && (S.overlay || S.rindeVis);
+const hueco = (l) => S.sel === l.id && (S.overlay || S.rindeVis || S.ambEd);
 function estilo(l) { const sel = S.sel === l.id; const c = colorDe(l); const conSubs = (l.subs || []).length > 0; return { color: sel ? "#F2C14E" : conSubs ? "#ffffff" : c, weight: sel ? 3.5 : 2, fillColor: c, fillOpacity: hueco(l) || conSubs ? 0 : 0.32, dashArray: conSubs || siembraDe(l) ? null : "5 4" }; }
 function estiloSub(l, sb) { return { color: "#ffffff", weight: 1.2, dashArray: "4 3", fillColor: colorSub(l, sb), fillOpacity: hueco(l) ? 0 : 0.38 }; }
 function dibujarLotes() {
@@ -145,9 +145,10 @@ const Dib={pts:[],mk:[],poly:null,guia:null,ultDrag:0,
     const h=!lin&&n>=3?this.haViva():null;const pc=lin?this.piezasCorte():null;
     el.innerHTML=`<div class="row" style="justify-content:space-between;align-items:baseline"><b>${esc(this.opt.titulo)}</b><span class="small muted">${n} punto${n!==1?"s":""}</span></div>
       ${h!=null?`<div class="row" style="gap:8px;align-items:baseline"><span class="num" style="font-size:22px;font-weight:600">${fmt(h)} ha</span><span class="small muted">${this.opt.clip?`dentro del lote (de ${fmt(haDe(this.opt.clip))} ha)`:"marcadas"}</span></div>`:!lin?`<div class="small muted">Las hectáreas aparecen desde el tercer punto${matchMedia("(hover:hover)").matches?"; mientras movés el mouse se ven al lado del cursor":""}.</div>`:""}
-      ${pc&&pc.length?`<div class="small">Quedarían: ${pc.map(a=>a.map(x=>`<b class="num">${fmt(x)} ha</b>`).join(" + ")).join(" · ")}</div>`:lin&&n>=2?`<div class="small muted">La línea todavía no corta el lote de lado a lado.</div>`:""}
-      <div class="small muted">${lin?"Trazá una línea que cruce el lote de lado a lado; podés quebrarla con varios puntos. Arrastrá un punto para moverlo · <b>Esc</b> borra el último · clic derecho sobre un punto lo borra · <b>Enter</b> corta":"Clic agrega un punto · arrastrá un punto para moverlo · <b>Esc</b> borra el último · clic derecho sobre un punto lo borra · <b>Enter</b> o clic en el punto amarillo cierra"}</div>
-      <div class="row"><button id="dUndo" ${n?"":"disabled"}>↶ Borrar último (Esc)</button><button class="primary" id="dOk" ${n>=min?"":"disabled"}>${lin?"Cortar":"Terminar"} (Enter)</button><button class="ghost" id="dNo">Cancelar</button></div>`;
+      ${pc&&pc.length?`<div class="small">Quedarían: ${pc.map(a=>a.map(x=>`<b class="num">${fmt(x)} ha</b>`).join(" + ")).join(" · ")}</div>`:lin&&n>=2&&this.opt.cortar?`<div class="small muted">La línea todavía no corta el lote de lado a lado.</div>`:""}
+      ${this.opt.info?this.opt.info(this.pts):""}
+      <div class="small muted">${this.opt.ayuda?this.opt.ayuda:lin?"Trazá una línea que cruce el lote de lado a lado; podés quebrarla con varios puntos. Arrastrá un punto para moverlo · <b>Esc</b> borra el último · clic derecho sobre un punto lo borra · <b>Enter</b> corta":"Clic agrega un punto · arrastrá un punto para moverlo · <b>Esc</b> borra el último · clic derecho sobre un punto lo borra · <b>Enter</b> o clic en el punto amarillo cierra"}</div>
+      <div class="row"><button id="dUndo" ${n?"":"disabled"}>↶ Borrar último (Esc)</button><button class="primary" id="dOk" ${n>=min?"":"disabled"}>${this.opt.boton||(lin?"Cortar":"Terminar")} (Enter)</button><button class="ghost" id="dNo">Cancelar</button></div>`;
     el.querySelector("#dUndo").onclick=()=>this.borrarUltimo();el.querySelector("#dOk").onclick=()=>this.terminar();el.querySelector("#dNo").onclick=()=>this.cancelar();
     L.DomEvent.disableClickPropagation(el)},
   salir(){map.off("click",this._click,this);map.off("mousemove",this._move,this);document.removeEventListener("keydown",this._key);
@@ -320,10 +321,11 @@ function formSiembra(l, sid, def = {}) {
 }
 
 /* ============ Panel lateral ============ */
-function seleccionar(id) { S.sel = id; limpiarOverlays(); S.ndvi = { items: [], sel: null, series: {} }; restyle(); render(); const y = S.layers.get(id); if (y) map.fitBounds(y.getBounds(), { padding: [40, 40], maxZoom: 16 }); }
+function seleccionar(id) { if (S.ambEd && S.ambEd.lote_id !== id) AMB.cerrar(); S.sel = id; limpiarOverlays(); S.ndvi = { items: [], sel: null, series: {} }; restyle(); render(); const y = S.layers.get(id); if (y) map.fitBounds(y.getBounds(), { padding: [40, 40], maxZoom: 16 }); }
 function render() {
   const p = document.getElementById("panel"); if (!p) return;
-  if (S.sel) { const l = loteDe(S.sel); if (l) { p.innerHTML = htmlLote(l); bindLote(l); return; } }
+  if (S.ambEd && S.ambEd.lote_id !== S.sel) AMB.cerrar();
+  if (S.sel) { const l = loteDe(S.sel); if (l) { if (S.ambEd) { p.innerHTML = AMB.html(l, S.ambEd); AMB.bind(l, S.ambEd); return; } p.innerHTML = htmlLote(l); bindLote(l); return; } }
   p.innerHTML = htmlResumen(); bindResumen();
 }
 function htmlResumen() {
@@ -400,11 +402,12 @@ function htmlLote(l) {
   </section>
   <section class="blk"><h2>NDVI satelital · Sentinel-2</h2>
     <div class="row"><div class="field"><label class="lbl" for="nDesde">Desde</label><input type="date" id="nDesde" value="${hace}"></div><div class="field"><label class="lbl" for="nHasta">Hasta</label><input type="date" id="nHasta" value="${hoyS}"></div><div class="field"><label class="lbl" for="nNub">Nubes escena</label><select id="nNub"><option value="20">&lt; 20%</option><option value="40" selected>&lt; 40%</option><option value="70">&lt; 70%</option><option value="101">Todas</option></select></div></div>
-    <div class="row"><button class="primary" id="bBuscar">Buscar imágenes</button><button id="bSerie" ${S.ndvi.items.length ? "" : "disabled"}>Calcular serie</button>${S.overlay ? '<button id="bQuitarN" class="ghost">Quitar capa</button>' : ""}</div>
+    <div class="row"><button class="primary" id="bBuscar">Buscar imágenes</button><button id="bVeranos" title="Diciembre a marzo de los últimos 6 años, con menos de 20% de nubes">Veranos de 6 años</button><button id="bSerie" ${S.ndvi.items.length ? "" : "disabled"}>Calcular serie</button>${S.overlay ? '<button id="bQuitarN" class="ghost">Quitar capa</button>' : ""}</div>
     <div class="progress" id="nProg" hidden><div></div></div>
     <div id="nVisBox" class="col">${htmlVis()}</div>
     <div id="nInfo"></div><div id="nSerie"></div><div id="nDates"></div>
   </section>
+  <section class="blk" id="ambBlk">${AMB.htmlSeccion(l)}</section>
   <section class="blk"><h2>Notas del lote</h2><textarea id="lNotas" placeholder="Aptitud, problemas de malezas, anegamiento, aguadas…">${esc(l.notas || "")}</textarea></section>`;
 }
 function bindLote(l) {
@@ -448,9 +451,10 @@ function bindLote(l) {
   }));
   let tN; $("lNotas").oninput = (e) => { clearTimeout(tN); tN = setTimeout(async () => { l.notas = e.target.value; await guardarLote(l); }, 700); };
   $("bBuscar").onclick = () => buscarNDVI(l);
+  $("bVeranos").onclick = () => { const y = new Date().getFullYear(); $("nDesde").value = `${y - 6}-12-01`; $("nHasta").value = hoy(); $("nNub").value = "20"; buscarNDVI(l, true); };
   $("bSerie").onclick = () => serieNDVI(l);
   if ($("bQuitarN")) $("bQuitarN").onclick = () => { limpiarOverlays(); restyle(); render(); };
-  pintarFechas(l); bindVis();
+  pintarFechas(l); bindVis(); AMB.bindSeccion(l);
 }
 /* Datos del lote que se mandan a la consulta */
 function contextoLote(l) {
@@ -538,12 +542,12 @@ async function toggleRinde(id){
   restyle();render();
 }
 function leyenda(html){const el=document.getElementById("legend");el.innerHTML=html;el.hidden=false}
-function limpiarOverlays(){if(rindeLayer){map.removeLayer(rindeLayer);rindeLayer=null}if(S.overlay){map.removeLayer(S.overlay);S.overlay=null}S.rindeVis=null;if(S.ndvi){S.ndvi.sel=null;S.ndvi.cur=null}document.getElementById("legend").hidden=true}
+function limpiarOverlays(){if(S.ambFr){map.removeLayer(S.ambFr);S.ambFr=null}if(rindeLayer){map.removeLayer(rindeLayer);rindeLayer=null}if(S.overlay){map.removeLayer(S.overlay);S.overlay=null}S.rindeVis=null;if(S.ndvi){S.ndvi.sel=null;S.ndvi.cur=null}document.getElementById("legend").hidden=true}
 
 /* ============ NDVI Sentinel-2 ============ */
 function bboxDe(g){let a=[180,90,-180,-90];for(const p of polysDe(g))for(const r of p)for(const c of r){a[0]=Math.min(a[0],c[0]);a[1]=Math.min(a[1],c[1]);a[2]=Math.max(a[2],c[0]);a[3]=Math.max(a[3],c[1])}return a}
 function satNom(p){return (p||"").replace(/sentinel-2([abc])/i,(m,x)=>"Sentinel-2"+x.toUpperCase())}
-async function buscarNDVI(l){
+async function buscarNDVI(l,verano=false){
   const info=document.getElementById("nInfo");const desde=document.getElementById("nDesde").value,hasta=document.getElementById("nHasta").value,nub=+document.getElementById("nNub").value;
   info.innerHTML='<span class="muted small">Buscando escenas en el catálogo de Sentinel-2…</span>';
   const bb=bboxDe(l.geom);
@@ -555,7 +559,7 @@ async function buscarNDVI(l){
       const nx=(j.links||[]).find(x=>x.rel==="next");if(!nx)break;url=nx.href;method=nx.method||"GET";if(nx.body)body={...body,...nx.body}}
     const cont=items.filter(it=>it.bbox&&it.bbox[0]<=bb[0]&&it.bbox[1]<=bb[1]&&it.bbox[2]>=bb[2]&&it.bbox[3]>=bb[3]);
     const use=cont.length?cont:items;const porDia=new Map();
-    for(const it of use){const d=it.properties.datetime.slice(0,10);const prev=porDia.get(d);if(!prev||it.properties["eo:cloud_cover"]<prev.properties["eo:cloud_cover"])porDia.set(d,it)}
+    for(const it of use){const d=it.properties.datetime.slice(0,10);if(verano&&![12,1,2,3].includes(+d.slice(5,7)))continue;const prev=porDia.get(d);if(!prev||it.properties["eo:cloud_cover"]<prev.properties["eo:cloud_cover"])porDia.set(d,it)}
     S.ndvi.items=[...porDia.values()].sort((a,b)=>b.properties.datetime.localeCompare(a.properties.datetime));
     const cache=await Cache.get("ndvi:"+l.id)||{};S.ndvi.series=cache;
     info.innerHTML=S.ndvi.items.length?`<span class="small muted">${S.ndvi.items.length} fechas disponibles. Elegí una para ver el NDVI del lote.</span>`:`<span class="small">No hay imágenes con esos filtros. Probá ampliar el rango o el % de nubes.</span>`;
@@ -563,9 +567,11 @@ async function buscarNDVI(l){
   }catch(err){console.error(err);info.innerHTML=`<div class="empty">No pude consultar el catálogo satelital (${esc(err.message)}). Revisá la conexión a internet.</div>`}
 }
 function pintarFechas(l){const el=document.getElementById("nDates");if(!el)return;if(!S.ndvi.items.length){el.innerHTML="";return}
-  el.innerHTML=`<div class="dates">${S.ndvi.items.map(it=>{const d=it.properties.datetime.slice(0,10);const c=S.ndvi.series[it.id];
-    return `<div class="date ${S.ndvi.sel===it.id?"on":""}" data-it="${it.id}" tabindex="0"><span class="num">${new Date(d+"T12:00").toLocaleDateString("es-AR")}</span><span class="small">${esc(satNom(it.properties.platform))} · ${fmt(it.properties["eo:cloud_cover"],0)}% nubes</span><span class="num small">${c?(c.mean!=null?"NDVI "+fmt(c.mean,2):"nublado"):""}</span></div>`}).join("")}</div>`;
-  el.querySelectorAll("[data-it]").forEach(d=>{d.onclick=()=>verNDVI(l,d.dataset.it);d.onkeydown=e=>{if(e.key==="Enter")verNDVI(l,d.dataset.it)}});
+  const sa=S.ambSel?.lote===l.id?S.ambSel.nd:[];
+  el.innerHTML=`<div class="small muted">Tildá ☑ las fechas que quieras usar en la ambientación (hasta ${AMB.MAX_NDVI}).</div><div class="dates">${S.ndvi.items.map(it=>{const d=it.properties.datetime.slice(0,10);const c=S.ndvi.series[it.id];
+    return `<div class="date amb ${S.ndvi.sel===it.id?"on":""}" data-it="${it.id}" tabindex="0"><input type="checkbox" data-at="${it.id}" ${sa.some(x=>x.id===it.id)?"checked":""} title="Usar en la ambientación" aria-label="Usar esta fecha en la ambientación"><span class="num">${new Date(d+"T12:00").toLocaleDateString("es-AR")}</span><span class="small">${esc(satNom(it.properties.platform))} · ${fmt(it.properties["eo:cloud_cover"],0)}% nubes</span><span class="num small">${c?(c.mean!=null?"NDVI "+fmt(c.mean,2):"nublado"):""}</span></div>`}).join("")}</div>`;
+  el.querySelectorAll("[data-it]").forEach(d=>{d.onclick=()=>verNDVI(l,d.dataset.it);d.onkeydown=e=>{if(e.key==="Enter"&&e.target===d)verNDVI(l,d.dataset.it)}});
+  el.querySelectorAll("[data-at]").forEach(ck=>{ck.onclick=e=>e.stopPropagation();ck.onchange=()=>{const it=S.ndvi.items.find(x=>x.id===ck.dataset.at);if(it&&!AMB.tildar(l,it,ck.checked))ck.checked=false}});
 }
 function utmDef(epsg){const z=epsg%100;const sur=Math.floor(epsg/100)===327;return `+proj=utm +zone=${z}${sur?" +south":""} +datum=WGS84 +units=m +no_defs`}
 function epsgDe(it){const p=it.properties;if(p["proj:epsg"])return p["proj:epsg"];if(p["proj:code"])return +p["proj:code"].split(":")[1];const a=it.assets.red||it.assets.B04;if(a?.["proj:epsg"])return a["proj:epsg"];if(a?.["proj:code"])return +a["proj:code"].split(":")[1];
