@@ -32,6 +32,26 @@ async function claude(body: Record<string, unknown>) {
   return j;
 }
 const usoHerramienta = (j: any) => j.content.find((c: any) => c.type === "tool_use")?.input;
+function jsonDeTexto(j: any) {
+  const t = j.content.filter((c: any) => c.type === "text").map((c: any) => c.text).join("\n");
+  const a = t.indexOf("{"), z = t.lastIndexOf("}");
+  if (a < 0 || z <= a) return null;
+  try { return JSON.parse(t.slice(a, z + 1)); } catch { return null; }
+}
+// Los modelos nuevos no aceptan forzar la herramienta (tool_choice "tool"): se pide en "auto",
+// con la instrucción en el sistema, y si no la usa se le recuerda una vez.
+async function conHerramienta(tool: any, base: { system?: string; max_tokens: number; messages: any[] }) {
+  const system = (base.system ? base.system + "\n\n" : "") +
+    `Respondé siempre llamando a la herramienta ${tool.name}, una sola vez y con todos los datos. No escribas texto aparte.`;
+  const req = { ...base, system, tools: [tool], tool_choice: { type: "auto" } };
+  let j = await claude(req);
+  let r = usoHerramienta(j) ?? jsonDeTexto(j);
+  if (r) return r;
+  j = await claude({ ...req, messages: [...base.messages, { role: "assistant", content: j.content }, { role: "user", content: `Registrá los datos llamando a la herramienta ${tool.name}.` }] });
+  r = usoHerramienta(j) ?? jsonDeTexto(j);
+  if (!r) throw new Error("La IA no devolvió los datos. Probá de nuevo o cargalo a mano.");
+  return r;
+}
 
 // ---------- Esquemas de respuesta ----------
 const TIPOS_PRODUCTO = ["herbicida", "insecticida", "fungicida", "fertilizante", "semilla", "coadyuvante", "combustible", "servicio", "otro"];
@@ -64,7 +84,7 @@ const TOOL_COMPROBANTE = {
             descripcion: { type: "string" },
             cantidad: { type: "number", description: "Cantidad en la unidad indicada. Convertí envases a litros o kilos cuando se pueda (10 bidones de 20 L = 200 L)." },
             unidad: { type: "string", enum: ["L", "kg", "u", "ha", "otro"] },
-            precio_unitario: { type: ["number", "null"], description: "Precio por unidad sin IVA, en la unidad de 'unidad'. null en remitos sin precio." },
+            precio_unitario: { type: ["number", "null"], description: "Precio por unidad sin IVA, en la unidad de 'unidad'. Siempre null en remitos." },
             alicuota_iva: { type: ["number", "null"], description: "Porcentaje, ej. 10.5 o 21" },
             subtotal: { type: ["number", "null"], description: "Importe neto del renglón sin IVA" },
             tipo_producto: { type: "string", enum: TIPOS_PRODUCTO },
@@ -81,7 +101,7 @@ const TOOL_COMPROBANTE = {
       total: { type: ["number", "null"] },
       observaciones: { type: ["string", "null"], description: "Datos dudosos o ilegibles que el usuario debería revisar" },
     },
-    required: ["tipo", "proveedor", "moneda", "items"],
+    required: ["tipo", "proveedor", "items"],
   },
 };
 
@@ -159,28 +179,28 @@ Deno.serve(async (req) => {
         if (tipo.includes("pdf")) contenido.push({ type: "document", source: { type: "base64", media_type: "application/pdf", data: datos } });
         else contenido.push({ type: "image", source: { type: "base64", media_type: tipo.startsWith("image/") ? tipo : "image/jpeg", data: datos } });
       }
+      const remito = b.tipo_sugerido === "remito";
       contenido.push({
         type: "text",
         text: "Leé este comprobante de un proveedor de un establecimiento agropecuario de Argentina y registrá sus datos. " +
-          "Si hay varias imágenes son páginas del mismo comprobante. Los precios unitarios van sin IVA. " +
-          "Si un dato no se lee con seguridad, ponelo en null y mencionalo en observaciones. " +
+          "Si hay varias imágenes son páginas del mismo comprobante. " +
+          (remito ? "El usuario indicó que es un REMITO. " : "") +
+          "Primero identificá el tipo: un REMITO (letra R, dice 'Remito' o 'Documento no válido como factura') acompaña la entrega de mercadería y no tiene precios; una FACTURA tiene precios e IVA. " +
+          "Si es un remito, concentrate en el emisor (razón social o nombre y CUIT), la fecha, el número de remito (punto de venta y número, ej. 0001-00012345) y cada producto con su cantidad y unidad; " +
+          "dejá precio_unitario, alicuota_iva, subtotal, neto, iva y total en null y no los menciones en observaciones. " +
+          "El emisor es la empresa que entrega o vende (el membrete), no el cliente: Flores Chicas, Areco o Sucesión Alberto S. Areco son el cliente. " +
+          "Convertí envases a litros o kilos cuando se pueda (10 bidones de 20 L = 200 L; 30 bolsas de 25 kg = 750 kg); las bolsas de semilla van en unidades (u). " +
+          "En facturas, los precios unitarios van sin IVA. Si un dato no se lee con seguridad, ponelo en null y mencionalo en observaciones; si la foto está borrosa o cortada, decilo ahí. " +
           (b.contexto?.proveedores?.length ? "Proveedores de la lista del usuario (para proveedor.id): " + JSON.stringify(b.contexto.proveedores) + ". " : "") +
           (b.contexto?.productos?.length ? "Insumos de la lista del usuario (para producto_id; la cantidad va en la unidad de ese insumo): " + JSON.stringify(b.contexto.productos) : ""),
       });
-      const j = await claude({
-        max_tokens: 4096,
-        tools: [TOOL_COMPROBANTE],
-        tool_choice: { type: "tool", name: "registrar_comprobante" },
-        messages: [{ role: "user", content: contenido }],
-      });
-      return json({ datos: usoHerramienta(j) });
+      const datos = await conHerramienta(TOOL_COMPROBANTE, { max_tokens: 8000, messages: [{ role: "user", content: contenido }] });
+      return json({ datos });
     }
 
     if (b.accion === "dictado") {
-      const j = await claude({
-        max_tokens: 3000,
-        tools: [TOOL_LABORES],
-        tool_choice: { type: "tool", name: "registrar_labores" },
+      const datos = await conHerramienta(TOOL_LABORES, {
+        max_tokens: 6000,
         system:
           "Sos el asistente de carga de labores de un establecimiento agropecuario en Lobería, provincia de Buenos Aires. " +
           "Interpretás lo que el usuario dictó (puede tener errores del dictado por voz) y lo convertís en labores. " +
@@ -193,12 +213,12 @@ Deno.serve(async (req) => {
           "Contratistas: " + JSON.stringify(b.contexto?.contratistas ?? []),
         messages: [{ role: "user", content: String(b.texto ?? "").slice(0, 6000) }],
       });
-      return json({ datos: usoHerramienta(j) });
+      return json({ datos });
     }
 
     if (b.accion === "consulta") {
       const j = await claude({
-        max_tokens: 1500,
+        max_tokens: 4000,
         system:
           "Respondés consultas sobre un lote de un establecimiento agropecuario de Lobería (Buenos Aires) usando solo los datos que se te pasan. " +
           "Contestá en español rioplatense, breve y concreto, con cifras cuando las haya. Si el dato no está, decilo.\n" +

@@ -143,7 +143,7 @@ Vistas.insumos = function () {
     <div class="row"><button class="ghost" data-ir="proveedores">Ver proveedores y control de remitos →</button></div></div>`;
   const $ = (q) => el.querySelector(q);
   $("#bNP").onclick = () => Insumos.formProducto(null);
-  $("#bRem").onclick = () => document.getElementById("fFoto").click();
+  $("#bRem").onclick = () => { Comprobantes.tipoFoto = "remito"; document.getElementById("fFoto").click(); };
   $("#bPed").onclick = () => Pedido.abrir();
   el.querySelectorAll("[data-ir]").forEach((b) => (b.onclick = () => irA(b.dataset.ir)));
   $("#bCsvI").onclick = () => descargar(`stock_galpon_${hoy()}.csv`, csv([["Insumo", "Tipo", "Principio activo", "Concentración", "Unidad", "Stock", "En órdenes abiertas", "Precio US$", "Valor US$"], ...S.d.productos.map((p) => { const h = hayDe(p.id); const pp = pr[p.id]; return [p.nombre, p.tipo, p.principio_activo, p.concentracion, p.unidad, +h.toFixed(3), st[p.id]?.ordenes || 0, pp ? +pp.usd.toFixed(4) : null, pp && h > 0 ? +(h * pp.usd).toFixed(2) : null]; })]), "text/csv");

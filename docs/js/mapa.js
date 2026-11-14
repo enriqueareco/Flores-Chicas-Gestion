@@ -566,11 +566,12 @@ async function buscarNDVI(l,verano=false){
     document.getElementById("bSerie").disabled=!S.ndvi.items.length;pintarFechas(l);pintarSerie(l);
   }catch(err){console.error(err);info.innerHTML=`<div class="empty">No pude consultar el catálogo satelital (${esc(err.message)}). Revisá la conexión a internet.</div>`}
 }
-function pintarFechas(l){const el=document.getElementById("nDates");if(!el)return;if(!S.ndvi.items.length){el.innerHTML="";return}
+function pintarFechas(l){const el=document.getElementById("nDates");if(!el)return;if(!S.ndvi.items.length){el.innerHTML="";return}const sc0=el.querySelector(".dates")?.scrollTop||0;
   const sa=S.ambSel?.lote===l.id?S.ambSel.nd:[];
   el.innerHTML=`<div class="small muted">Tildá ☑ las fechas que quieras usar en la ambientación (hasta ${AMB.MAX_NDVI}).</div><div class="dates">${S.ndvi.items.map(it=>{const d=it.properties.datetime.slice(0,10);const c=S.ndvi.series[it.id];
-    return `<div class="date amb ${S.ndvi.sel===it.id?"on":""}" data-it="${it.id}" tabindex="0"><input type="checkbox" data-at="${it.id}" ${sa.some(x=>x.id===it.id)?"checked":""} title="Usar en la ambientación" aria-label="Usar esta fecha en la ambientación"><span class="num">${new Date(d+"T12:00").toLocaleDateString("es-AR")}</span><span class="small">${esc(satNom(it.properties.platform))} · ${fmt(it.properties["eo:cloud_cover"],0)}% nubes</span><span class="num small">${c?(c.mean!=null?"NDVI "+fmt(c.mean,2):"nublado"):""}</span></div>`}).join("")}</div>`;
+    return `<div class="date amb ${S.ndvi.sel===it.id?"on":""}" data-it="${it.id}" tabindex="0"><input type="checkbox" data-at="${it.id}" ${sa.some(x=>x.id===it.id)?"checked":""} title="Usar en la ambientación" aria-label="Usar esta fecha en la ambientación"><span class="num">${new Date(d+"T12:00").toLocaleDateString("es-AR")}</span><span class="small">${esc(satNom(it.properties.platform))} · ${fmt(it.properties["eo:cloud_cover"],0)}% nubes</span><span class="num small nval">${c?(c.mean!=null?"NDVI "+fmt(c.mean,2):"nublado"):""}</span></div>`}).join("")}</div>`;
   el.querySelectorAll("[data-it]").forEach(d=>{d.onclick=()=>verNDVI(l,d.dataset.it);d.onkeydown=e=>{if(e.key==="Enter"&&e.target===d)verNDVI(l,d.dataset.it)}});
+  const dl=el.querySelector(".dates");if(dl)dl.scrollTop=sc0;
   el.querySelectorAll("[data-at]").forEach(ck=>{ck.onclick=e=>e.stopPropagation();ck.onchange=()=>{const it=S.ndvi.items.find(x=>x.id===ck.dataset.at);if(it&&!AMB.tildar(l,it,ck.checked))ck.checked=false}});
 }
 function utmDef(epsg){const z=epsg%100;const sur=Math.floor(epsg/100)===327;return `+proj=utm +zone=${z}${sur?" +south":""} +datum=WGS84 +units=m +no_defs`}
@@ -662,22 +663,40 @@ async function calcNDVI(l,it){
   else{res.mean=null;if(vals.length){const s=Float32Array.from(vals).sort();res.p2=cuantil(s,.02);res.p98=cuantil(s,.98)}}
   return res;
 }
+const ndviEnCurso=new Map();let ndviCola=Promise.resolve();
 async function obtenerNDVI(l,it,conRaw){const c=S.ndvi.series[it.id];if(c&&c.W&&(!conRaw||c.raw))return c;
-  const r=await calcNDVI(l,it);const cache=await Cache.get("ndvi2:"+l.id)||{};
-  for(const k of Object.keys(cache)){if(cache[k].img!==undefined)delete cache[k].img;if(!cache[k].W)delete cache[k]}
-  cache[it.id]=conRaw?r:{...r,raw:null};
-  const conDatos=Object.keys(cache).filter(k=>k!==it.id&&cache[k].raw);if(conDatos.length>15)for(const k of conDatos.slice(0,conDatos.length-15))cache[k].raw=null;
-  await Cache.set("ndvi2:"+l.id,cache);S.ndvi.series=cache;return r}
-async function verNDVI(l,id){const it=S.ndvi.items.find(x=>x.id===id);if(!it)return;const info=document.getElementById("nInfo");
-  info.innerHTML='<span class="small muted">Descargando bandas y calculando NDVI del lote…</span>';
-  try{let r=S.ndvi.series[id];if(!r||!r.raw||!r.W)r=await obtenerNDVI(l,it,true);
+  const k=l.id+"|"+it.id;if(ndviEnCurso.has(k))return ndviEnCurso.get(k);
+  const p=(async()=>{const r=await calcNDVI(l,it);
+    /* La caché se lee y se escribe de a una por vez, para que dos fechas calculadas a la par no se pisen */
+    ndviCola=ndviCola.catch(()=>{}).then(async()=>{const cache=await Cache.get("ndvi2:"+l.id)||{};
+      for(const x of Object.keys(cache)){if(cache[x].img!==undefined)delete cache[x].img;if(!cache[x].W)delete cache[x]}
+      cache[it.id]=conRaw?r:{...r,raw:null};
+      const conDatos=Object.keys(cache).filter(x=>x!==it.id&&cache[x].raw);if(conDatos.length>15)for(const x of conDatos.slice(0,conDatos.length-15))cache[x].raw=null;
+      await Cache.set("ndvi2:"+l.id,cache);if(S.sel===l.id)S.ndvi.series=cache});
+    await ndviCola;return r})();
+  ndviEnCurso.set(k,p);try{return await p}finally{ndviEnCurso.delete(k)}}
+/* Mantiene en pantalla el elemento de referencia mientras cambia lo que está arriba de él */
+function scrollPadre(el){for(let p=el?.parentElement;p;p=p.parentElement){const o=getComputedStyle(p).overflowY;if((o==="auto"||o==="scroll")&&p.scrollHeight>p.clientHeight)return p}return null}
+function anclado(ref,fn){if(!ref||!ref.isConnected){fn();return}const y0=ref.getBoundingClientRect().top;fn();if(!ref.isConnected)return;const d=ref.getBoundingClientRect().top-y0;if(Math.abs(d)<1)return;const sc=scrollPadre(ref);if(sc)sc.scrollTop+=d;else window.scrollBy(0,d)}
+function filaFecha(id){return document.querySelector(`#nDates [data-it="${CSS.escape(id)}"]`)}
+function marcarFecha(id,estado,txt){document.querySelectorAll("#nDates .date").forEach(d=>{const yo=d.dataset.it===id;d.classList.toggle("on",yo&&estado==="on");d.classList.toggle("cargando",yo&&estado==="cargando");d.classList.toggle("falla",yo&&estado==="error")});
+  const f=filaFecha(id);const v=f?.querySelector(".nval");if(v)v.innerHTML=estado==="cargando"?'<span class="spin"></span>':estado==="error"?'<span class="pill bad">no cargó</span>':esc(txt||"")}
+const conTiempo=(p,ms,msg)=>Promise.race([p,new Promise((_,rej)=>setTimeout(()=>rej(new Error(msg)),ms))]);
+let ndviPedido=0;
+async function verNDVI(l,id){const it=S.ndvi.items.find(x=>x.id===id);if(!it)return;const yo=++ndviPedido;const fecha=new Date(it.properties.datetime.slice(0,10)+"T12:00").toLocaleDateString("es-AR");
+  const ref=()=>document.getElementById("nDates");const info=()=>document.getElementById("nInfo");
+  marcarFecha(id,"cargando");
+  anclado(ref(),()=>{if(info())info().innerHTML=`<span class="small muted"><span class="spin"></span> Descargando y calculando el NDVI del ${fecha}…</span>`});
+  try{let r=S.ndvi.series[id];if(!r||!r.raw||!r.W)r=await conTiempo(obtenerNDVI(l,it,true),90000,"el servidor de imágenes no respondió a tiempo");
+    if(yo!==ndviPedido||S.sel!==l.id){const v=filaFecha(id)?.querySelector(".nval");if(v)v.textContent=r.mean!=null?"NDVI "+fmt(r.mean,2):"nublado";return} /* se tocó otra fecha mientras tanto: manda la última */
     limpiarOverlays();S.ndvi.sel=id;S.ndvi.cur=r;
     S.overlay=L.imageOverlay(pintarNDVI(r),r.bounds,{opacity:1,interactive:false,className:"ndvi-img"}).addTo(map);restyle();
     const y=S.layers.get(l.id);if(y)y.bringToFront();
-    leyendaNDVI(r);render();
-    document.getElementById("nInfo").innerHTML=`<div class="stats"><div><span>NDVI medio</span><b class="num">${fmt(r.mean,2)}</b></div><div><span>P10–P90</span><b class="num">${fmt(r.p10,2)}–${fmt(r.p90,2)}</b></div><div><span>Nubes lote</span><b class="num">${fmt(r.nubes,0)}%</b></div></div>${histNDVI(r)}`;
-    pintarSerie(l);
-  }catch(err){console.error(err);info.innerHTML=`<div class="empty">No pude calcular el NDVI de esa fecha (${esc(err.message)}).</div>`}}
+    leyendaNDVI(r);marcarFecha(id,"on",r.mean!=null?"NDVI "+fmt(r.mean,2):"nublado");
+    anclado(ref(),()=>{if(info())info().innerHTML=(r.mean==null?`<div class="aviso">El ${fecha} el lote estaba casi todo cubierto por nubes o sombra (${fmt(r.nubes,0)}%). Lo gris del mapa es nube.</div>`:"")+`<div class="stats"><div><span>NDVI medio</span><b class="num">${r.mean!=null?fmt(r.mean,2):"—"}</b></div><div><span>P10–P90</span><b class="num">${r.p10!=null?fmt(r.p10,2)+"–"+fmt(r.p90,2):"—"}</b></div><div><span>Nubes lote</span><b class="num">${fmt(r.nubes,0)}%</b></div></div>${histNDVI(r)}`;pintarSerie(l)});
+  }catch(err){console.error(err);if(yo!==ndviPedido)return;marcarFecha(id,"error");
+    anclado(ref(),()=>{if(info())info().innerHTML=`<div class="aviso">No pude cargar el NDVI del ${fecha} (${esc(err.message)}). Tocá la fecha de nuevo para reintentar.</div>`});
+    toast(`No pude cargar el NDVI del ${fecha}. Tocá la fecha de nuevo para reintentar.`,6000)}}
 async function serieNDVI(l){const prog=document.getElementById("nProg");prog.hidden=false;const bar=prog.firstElementChild;const items=S.ndvi.items;let k=0,fall=0;
   document.getElementById("bSerie").disabled=true;
   for(const it of items){try{await obtenerNDVI(l,it,false)}catch(e){fall++;console.warn(e)}k++;bar.style.width=(k/items.length*100)+"%";if(k%3===0){pintarFechas(l);pintarSerie(l)}}

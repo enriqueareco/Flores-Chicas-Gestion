@@ -15,7 +15,7 @@ Vistas.cargar = function () {
     </div>
   </div>`;
   const $ = (q) => el.querySelector(q);
-  $("#aFoto").onclick = () => document.getElementById("fFoto").click();
+  $("#aFoto").onclick = () => { Comprobantes.tipoFoto = null; document.getElementById("fFoto").click(); };
   $("#aPdf").onclick = () => document.getElementById("fDoc").click();
   $("#aLab").onclick = () => Labores.form(null, {});
   $("#aOrd").onclick = () => Ordenes.form(null);

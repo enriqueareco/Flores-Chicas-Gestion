@@ -247,3 +247,8 @@ table.t tr.apagada td:not(.tgl-td){opacity:.45}
 .amb-tot b{font-size:18px}
 .amb-pasos{margin:6px 0 0;padding-left:18px;display:flex;flex-direction:column;gap:4px}
 .franja-lbl div{transform:translate(-50%,-50%);background:#111;color:#fff;font:700 11px var(--f-body);padding:1px 6px;border-radius:4px;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.4)}
+.date.cargando{background:var(--chip)}
+.date.falla{box-shadow:inset 3px 0 0 var(--danger)}
+span.spin{display:inline-block;width:12px;height:12px;border-width:2px;vertical-align:-2px;margin-right:4px}
+.comp-remito .solo-factura{display:none!important}
+.comp-factura .solo-remito{display:none!important}

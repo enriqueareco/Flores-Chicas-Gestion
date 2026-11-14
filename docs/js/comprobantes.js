@@ -16,7 +16,7 @@ async function comprimirImagen(file) {
 
 const Comprobantes = {
   /* Una o varias fotos = un comprobante (páginas). Cada PDF = un comprobante. */
-  async desdeArchivos(files, origen) {
+  async desdeArchivos(files, origen, tipoSug = null) {
     files = [...files]; if (!files.length) return;
     const grupos = origen === "foto" ? [files] : files.map((f) => [f]);
     const imgs = files.filter((f) => f.type.startsWith("image/"));
@@ -25,7 +25,7 @@ const Comprobantes = {
     for (let gi = 0; gi < grupos.length; gi++) {
       const g = grupos[gi];
       const fin = cargando(grupos.length > 1 ? `Subiendo comprobante ${gi + 1} de ${grupos.length}…` : "Subiendo comprobante…");
-      const c = { id: uid(), tipo: "factura", estado: "borrador", origen: g[0].type.includes("pdf") ? "pdf" : "foto", items: [], archivos: [], mueve_stock: true, moneda: "ARS" };
+      const c = { id: uid(), tipo: tipoSug || "factura", tipo_sugerido: tipoSug || null, estado: "borrador", origen: g[0].type.includes("pdf") ? "pdf" : "foto", items: [], archivos: [], mueve_stock: true, moneda: "ARS" };
       try {
         for (let i = 0; i < g.length; i++) {
           const b = await comprimirImagen(g[i]);
@@ -47,7 +47,7 @@ const Comprobantes = {
     if (DB.modo === "local") return;
     const fin = cargando("Leyendo el comprobante con IA" + sufijo + "…");
     try {
-      const r = await DB.ia("comprobante", { archivos: c.archivos, contexto: {
+      const r = await DB.ia("comprobante", { archivos: c.archivos, tipo_sugerido: c.tipo_sugerido || null, contexto: {
         proveedores: S.d.proveedores.slice(0, 300).map((p) => ({ id: p.id, nombre: p.nombre, cuit: p.cuit, otros_nombres: (p.alias || []).map((a) => a.texto ?? a).slice(0, 6) })),
         productos: S.d.productos.slice(0, 400).map((p) => ({ id: p.id, nombre: p.nombre, tipo: p.tipo, principio_activo: p.principio_activo, concentracion: p.concentracion, unidad: p.unidad, otros_nombres: (p.alias || []).map((a) => a.texto ?? a).slice(0, 10) })),
       } });
@@ -63,9 +63,12 @@ const Comprobantes = {
       if (esFactura(c) && c.proveedor_id) { const refs = (d.remitos_referenciados || []).map(dig).filter(Boolean); c.remitos = S.d.comprobantes.filter((r) => r.tipo === "remito" && r.proveedor_id === c.proveedor_id && refs.some((x) => dig(r.numero).endsWith(x) || x.endsWith(dig(r.numero)))).map((r) => r.id); }
       c.mueve_stock = c.tipo !== "nota_debito";
       c.items = (d.items || []).map((it) => Comprobantes.asignar({ ...it, sugerido_id: it.producto_id || null, producto_id: null }));
+      /* El remito no lleva precios: proveedor, fecha, número y cantidades */
+      if (c.tipo === "remito") { c.letra = c.letra || "R"; c.total = null; c.tipo_cambio = null; c.items = c.items.map((it) => ({ ...it, precio_unitario: null, alicuota_iva: null, subtotal: null })); }
+      c.ia_error = null;
       c.campana = campanaDeFecha(c.fecha);
       await guardar("comprobantes", c);
-    } catch (e) { toast("No pude leerlo automáticamente: " + e.message + ". Completalo a mano.", 8000); }
+    } catch (e) { c.ia_error = e.message; try { await guardar("comprobantes", c); } catch (e2) {} toast("No pude leerlo automáticamente: " + e.message + ". Completalo a mano.", 8000); }
     finally { fin(); }
   },
   /* Reconoce el insumo de un renglón: por nombre ya visto (seguro) o por sugerencia de la IA (a confirmar) */
@@ -84,20 +87,22 @@ const Comprobantes = {
     let items = (c.items || []).map((x) => (c.estado === "confirmado" || x.producto_id || x.ignorar ? { ...x } : Comprobantes.asignar(x)));
     const prov = proveedorDe(c.proveedor_id);
     modal(`<div class="row" style="justify-content:space-between"><h4>${c.estado === "confirmado" ? "Comprobante" : "Revisar comprobante"}</h4>${c.estado === "confirmado" ? '<span class="pill ok">Confirmado</span>' : '<span class="pill warn">Borrador</span>'}</div>
+      ${c.ia_error && !c.ia ? `<div class="aviso">No se pudo leer automáticamente (${esc(c.ia_error)}). Probá <b>Leer de nuevo con IA</b> o completalo mirando la imagen.</div>` : ""}
       ${c.ia?.observaciones ? `<div class="aviso"><b>Para revisar:</b> ${esc(c.ia.observaciones)}</div>` : ""}
+      <div class="small muted solo-remito">Remito: proveedor, fecha, número y productos con sus cantidades. Los precios se cargan después, con la factura.</div>
       ${DB.modo === "local" && !c.ia ? `<div class="aviso">En modo prueba no se lee automáticamente. Completá los datos mirando la imagen.</div>` : ""}
       <div class="visor">
         <div class="doc">${urls.length ? urls.map((u) => u.tipo.includes("pdf") ? `<iframe src="${esc(u.url)}" title="Comprobante PDF"></iframe>` : `<a href="${esc(u.url)}" target="_blank" rel="noopener"><img src="${esc(u.url)}" alt="Página del comprobante"></a>`).join("") : '<div class="muted" style="padding:20px;color:#bbb">Sin archivo adjunto</div>'}</div>
         <div class="col" style="gap:10px;min-width:0">
           <div class="row"><div class="field"><label class="lbl" for="cTipo">Tipo</label><select id="cTipo">${opciones(TIPOS_COMP, c.tipo)}</select></div>
             <div class="field"><label class="lbl" for="cLetra">Letra</label><input id="cLetra" value="${esc(c.letra || "")}" style="width:52px" maxlength="1"></div>
-            <div class="field grow"><label class="lbl" for="cNum">Número</label><input id="cNum" value="${esc(c.numero || "")}" placeholder="0003-00012345"></div>
+            <div class="field grow"><label class="lbl" for="cNum" id="cNumLbl">${c.tipo === "remito" ? "Número de remito" : "Número"}</label><input id="cNum" value="${esc(c.numero || "")}" placeholder="0003-00012345"></div>
             <div class="field"><label class="lbl" for="cFecha">Fecha</label><input type="date" id="cFecha" value="${esc(c.fecha || "")}"></div></div>
           <div class="field"><label class="lbl" for="cProvSel">Proveedor</label><select id="cProvSel"><option value="">Elegir proveedor…</option>${opciones([...S.d.proveedores].sort((a, b) => a.nombre.localeCompare(b.nombre)).map((p) => [p.id, p.nombre + (p.cuit ? " · " + p.cuit : "")]), c.proveedor_id || "")}<option value="__nuevo" ${!c.proveedor_id && (c.proveedor_nombre || c.cuit) ? "selected" : ""}>+ Proveedor nuevo…</option></select></div>
           <div class="row" id="cProvNuevo"><div class="field grow"><label class="lbl" for="cProv">Nombre del proveedor nuevo</label><input id="cProv" value="${esc(c.proveedor_nombre || "")}"></div>
             <div class="field"><label class="lbl" for="cCuit">CUIT</label><input id="cCuit" value="${esc(c.cuit || "")}" inputmode="numeric" style="width:140px"></div></div>
           <div class="small" id="cProvEstado"></div>
-          <div class="row" id="cPrecios"><div class="field"><label class="lbl" for="cMon">Moneda</label><select id="cMon">${opciones([["ARS", "Pesos"], ["USD", "Dólares"]], c.moneda)}</select></div>
+          <div class="row solo-factura" id="cPrecios"><div class="field"><label class="lbl" for="cMon">Moneda</label><select id="cMon">${opciones([["ARS", "Pesos"], ["USD", "Dólares"]], c.moneda)}</select></div>
             <div class="field"><label class="lbl" for="cTC">Tipo de cambio</label><input id="cTC" inputmode="decimal" value="${c.tipo_cambio ?? ""}" style="width:110px" placeholder="$ por US$"></div>
             <div class="field"><label class="lbl" for="cTot">Total con IVA</label><input id="cTot" inputmode="decimal" value="${c.total ?? ""}" style="width:130px"></div></div>
           <div class="row" style="justify-content:space-between"><h2>¿Qué insumo es cada renglón?</h2><button id="cAddIt" class="small">+ Renglón</button></div>
@@ -108,7 +113,7 @@ const Comprobantes = {
           <div class="field"><label class="lbl" for="cNot">Notas</label><input id="cNot" value="${esc(c.notas || "")}"></div>
         </div>
       </div>
-      <div class="pie"><button class="ghost danger" id="cDel" style="margin-right:auto">Eliminar</button><button id="mNo">Cerrar</button>${c.estado === "confirmado" ? '<button class="primary" id="cOk">Guardar cambios</button>' : '<button id="cBorr">Guardar borrador</button><button class="primary" id="cOk">Confirmar</button>'}</div>`, (m, close) => {
+      <div class="pie"><button class="ghost danger" id="cDel" style="margin-right:auto">Eliminar</button>${c.estado !== "confirmado" && c.archivos?.length && DB.modo !== "local" ? '<button id="cReleer">🔄 Leer de nuevo con IA</button>' : ""}<button id="mNo">Cerrar</button>${c.estado === "confirmado" ? '<button class="primary" id="cOk">Guardar cambios</button>' : '<button id="cBorr">Guardar borrador</button><button class="primary" id="cOk">Confirmar</button>'}</div>`, (m, close) => {
       const $ = (q) => m.querySelector(q);
       const chip = (it) => {
         if (it.ignorar) return `<span class="pill mut">No va al galpón</span>`;
@@ -125,7 +130,7 @@ const Comprobantes = {
             <div class="row"><div class="field grow" style="min-width:200px"><label class="lbl">Insumo de tu lista</label><select data-k="producto_id" aria-label="Insumo">${opcionesProductos(it.ignorar ? "" : it.producto_id).replace('<option value="__nuevo">', `<option value="__ignorar" ${it.ignorar ? "selected" : ""}>No va al galpón (flete, servicio, otro)</option><option value="__nuevo">`)}</select></div><div style="align-self:flex-end;padding-bottom:4px">${chip(it)}</div></div>
             <div class="row"><div class="field"><label class="lbl">Cantidad</label><input data-k="cantidad" inputmode="decimal" value="${it.cantidad ?? ""}" style="width:100px"></div>
               <div class="field"><label class="lbl">Unidad</label><select data-k="unidad">${opciones(["L", "kg", "u", "ha", "otro"], it.unidad || "L")}</select></div>
-              <div class="field"><label class="lbl">Precio unit. sin IVA</label><input data-k="precio_unitario" inputmode="decimal" value="${it.precio_unitario ?? ""}" placeholder="${c.tipo === "remito" ? "sin precio" : ""}" style="width:120px"></div></div>
+              <div class="field solo-factura"><label class="lbl">Precio unit. sin IVA</label><input data-k="precio_unitario" inputmode="decimal" value="${it.precio_unitario ?? ""}" placeholder="${c.tipo === "remito" ? "sin precio" : ""}" style="width:120px"></div></div>
             ${avisoUnidad(it)}</div>`).join("") : `<div class="empty">Sin renglones. Agregá los insumos del comprobante.</div>`;
         $("#cItems").querySelectorAll("[data-i]").forEach((row) => {
           const i = +row.dataset.i; const it = items[i];
@@ -183,7 +188,13 @@ const Comprobantes = {
       marcarServicios(); pintarItems(); estadoProv();
       $("#cProvSel").onchange = () => { c.prov_match = "manual"; marcarServicios(); pintarItems(); estadoProv(); };
       $("#cProv").oninput = estadoProv; $("#cCuit").oninput = estadoProv;
-      $("#cTipo").onchange = pintarRemitos;
+      const modoTipo = () => { const t = $("#cTipo").value; m.classList.toggle("comp-remito", t === "remito"); m.classList.toggle("comp-factura", t !== "remito"); $("#cNumLbl").textContent = t === "remito" ? "Número de remito" : "Número"; if (t === "remito" && !$("#cLetra").value) $("#cLetra").value = "R"; if (t === "remito") $("#cStockTxt").textContent = "(lo que figura en el remito entra al stock)"; };
+      modoTipo();
+      $("#cTipo").onchange = () => { modoTipo(); pintarRemitos(); };
+      if ($("#cReleer")) $("#cReleer").onclick = async () => {
+        if ((c.items || []).length && !(await confirmar("Se vuelve a leer la imagen y se reemplazan los datos cargados. ¿Seguir?", "Leer de nuevo"))) return;
+        close(); await Comprobantes.leer(c); refrescar(); Comprobantes.revisar(c);
+      };
       $("#cItems").addEventListener("change", () => setTimeout(pintarRemitos, 0));
       $("#cAddIt").onclick = () => { items.push({ ...it0 }); pintarItems(); };
       $("#mNo").onclick = close;
@@ -197,6 +208,7 @@ const Comprobantes = {
         Object.assign(c, { tipo: $("#cTipo").value, letra: $("#cLetra").value.trim().toUpperCase() || null, numero: $("#cNum").value.trim() || null, fecha: $("#cFecha").value || null, proveedor_nombre: $("#cProvSel").value === "__nuevo" ? $("#cProv").value.trim() || null : provSel()?.nombre || null, cuit: $("#cProvSel").value === "__nuevo" ? soloDig($("#cCuit").value) || null : provSel()?.cuit || c.cuit || null, proveedor_id: provSel()?.id || null, remitos: esFactura({ tipo: $("#cTipo").value }) ? [...remSel] : [], moneda: $("#cMon").value, tipo_cambio: num($("#cTC").value), total: num($("#cTot").value), mueve_stock: $("#cStock").checked, notas: $("#cNot").value.trim() || null });
         c.campana = campanaDeFecha(c.fecha);
         c.items = items.filter((it) => it.descripcion || it.producto_id).map((it) => ({ ...it, subtotal: it.cantidad != null && it.precio_unitario != null ? +(it.cantidad * it.precio_unitario).toFixed(2) : it.subtotal ?? null }));
+        if (c.tipo === "remito") { c.total = null; c.tipo_cambio = null; c.items = c.items.map((it) => ({ ...it, precio_unitario: null, alicuota_iva: null, subtotal: null })); }
       };
       if ($("#cBorr")) $("#cBorr").onclick = async () => { juntar(); try { await guardar("comprobantes", c); close(); refrescar(); toast("Borrador guardado"); } catch (e) { toast(e.message, 6000); } };
       $("#cOk").onclick = async () => {
@@ -242,7 +254,7 @@ const Comprobantes = {
   },
 };
 
-document.getElementById("fFoto").onchange = (e) => { const f = [...e.target.files]; e.target.value = ""; Comprobantes.desdeArchivos(f, "foto"); };
+document.getElementById("fFoto").onchange = (e) => { const f = [...e.target.files]; e.target.value = ""; const t = Comprobantes.tipoFoto; Comprobantes.tipoFoto = null; Comprobantes.desdeArchivos(f, "foto", t); };
 document.getElementById("fDoc").onchange = (e) => { const f = [...e.target.files]; e.target.value = ""; Comprobantes.desdeArchivos(f, "pdf"); };
 
 Vistas.comprobantes = function () {
@@ -266,7 +278,7 @@ Vistas.comprobantes = function () {
       : `<div class="empty">No hay comprobantes${f.estado || f.prov || f.tipo ? " con ese filtro" : " en esta campaña"}. Sacá una foto de una factura o remito, o subí el PDF de una factura electrónica: se leen el proveedor, los productos, las cantidades y los precios, y vos lo revisás antes de confirmar.</div>`}
   </div>`;
   const $ = (q) => el.querySelector(q);
-  $("#bFoto").onclick = () => document.getElementById("fFoto").click();
+  $("#bFoto").onclick = () => { Comprobantes.tipoFoto = null; document.getElementById("fFoto").click(); };
   $("#bPdf").onclick = () => document.getElementById("fDoc").click();
   $("#bMan").onclick = async () => { const c = await guardar("comprobantes", { id: uid(), tipo: "factura", estado: "borrador", origen: "manual", items: [], archivos: [], mueve_stock: true, moneda: "ARS", fecha: hoy() }); Comprobantes.revisar(c); };
   $("#fE").onchange = (e) => { f.estado = e.target.value; Vistas.comprobantes(); };
