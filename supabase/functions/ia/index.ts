@@ -1,5 +1,6 @@
 // Función "ia" de Campo Flores Chicas.
-// Lee fotos y PDF de comprobantes, interpreta labores dictadas y responde consultas sobre un lote.
+// Lee fotos y PDF de comprobantes, interpreta labores dictadas, responde consultas sobre un lote
+// y atiende el asistente (chat) del programa.
 // Necesita el secreto ANTHROPIC_API_KEY (Supabase > Edge Functions > Secrets).
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
 
@@ -214,6 +215,22 @@ Deno.serve(async (req) => {
         messages: [{ role: "user", content: String(b.texto ?? "").slice(0, 6000) }],
       });
       return json({ datos });
+    }
+
+    if (b.accion === "chat") {
+      // Asistente del programa: el navegador manda la conversación y las herramientas;
+      // las herramientas se ejecutan en el navegador con los datos del campo, acá solo se consulta al modelo.
+      const mensajes = Array.isArray(b.mensajes) ? b.mensajes : [];
+      if (!mensajes.length) return json({ error: "Falta la pregunta." }, 400);
+      if (JSON.stringify(mensajes).length > 600000) return json({ error: "La conversación es muy larga: empezá una nueva." }, 400);
+      const herramientas = Array.isArray(b.herramientas) ? b.herramientas.slice(0, 20) : [];
+      const j = await claude({
+        max_tokens: 4000,
+        system: String(b.sistema ?? "").slice(0, 20000),
+        ...(herramientas.length ? { tools: herramientas, tool_choice: { type: "auto" } } : {}),
+        messages: mensajes,
+      });
+      return json({ content: j.content, stop_reason: j.stop_reason });
     }
 
     if (b.accion === "consulta") {

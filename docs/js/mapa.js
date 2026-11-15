@@ -679,7 +679,7 @@ async function obtenerNDVI(l,it,conRaw){const c=S.ndvi.series[it.id];if(c&&c.W&&
 function scrollPadre(el){for(let p=el?.parentElement;p;p=p.parentElement){const o=getComputedStyle(p).overflowY;if((o==="auto"||o==="scroll")&&p.scrollHeight>p.clientHeight)return p}return null}
 function anclado(ref,fn){if(!ref||!ref.isConnected){fn();return}const y0=ref.getBoundingClientRect().top;fn();if(!ref.isConnected)return;const d=ref.getBoundingClientRect().top-y0;if(Math.abs(d)<1)return;const sc=scrollPadre(ref);if(sc)sc.scrollTop+=d;else window.scrollBy(0,d)}
 function filaFecha(id){return document.querySelector(`#nDates [data-it="${CSS.escape(id)}"]`)}
-function marcarFecha(id,estado,txt){document.querySelectorAll("#nDates .date").forEach(d=>{const yo=d.dataset.it===id;d.classList.toggle("on",yo&&estado==="on");d.classList.toggle("cargando",yo&&estado==="cargando");d.classList.toggle("falla",yo&&estado==="error")});
+function marcarFecha(id,estado,txt){document.querySelectorAll("#nDates .date").forEach(d=>{const yo=d.dataset.it===id;d.classList.toggle("on",yo&&estado==="on");d.classList.toggle("ndvi-carga",yo&&estado==="cargando");d.classList.toggle("falla",yo&&estado==="error")});
   const f=filaFecha(id);const v=f?.querySelector(".nval");if(v)v.innerHTML=estado==="cargando"?'<span class="spin"></span>':estado==="error"?'<span class="pill bad">no cargó</span>':esc(txt||"")}
 const conTiempo=(p,ms,msg)=>Promise.race([p,new Promise((_,rej)=>setTimeout(()=>rej(new Error(msg)),ms))]);
 let ndviPedido=0;
