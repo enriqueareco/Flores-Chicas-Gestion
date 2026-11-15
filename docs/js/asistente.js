@@ -30,8 +30,11 @@ function buscarEn(lista, q, textos) {
   if (!q) return lista;
   const n = norm(q).replace(/^lote /, "");
   const exactos = lista.filter((x) => textos(x).some((t) => norm(t) === n)); if (exactos.length) return exactos;
-  const pal = lista.filter((x) => coincideTokens(textos(x).join(" "), q)); if (pal.length) return pal;
-  const c = compacto(n); return c.length >= 2 ? lista.filter((x) => textos(x).some((t) => compacto(t).includes(c))) : [];
+  const c = compacto(n); const mixto = /[a-z]/.test(c) && /\d/.test(c);
+  /* "28B" también encuentra "28 B (2)": con letras y números se compara sin espacios */
+  const pal = lista.filter((x) => coincideTokens(textos(x).join(" "), q) || (mixto && textos(x).some((t) => compacto(t).includes(c))));
+  if (pal.length) return pal;
+  return c.length >= 2 ? lista.filter((x) => textos(x).some((t) => compacto(t).includes(c))) : [];
 }
 const textosProducto = (p) => [p.nombre, p.principio_activo || "", ...(p.alias || []).map((a) => a.texto ?? a)].filter(Boolean);
 const buscarProductos = (q) => buscarEn(S.d.productos, q, textosProducto);
