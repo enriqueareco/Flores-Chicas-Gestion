@@ -108,7 +108,7 @@ const Dib={pts:[],mk:[],poly:null,guia:null,ultDrag:0,
     map.doubleClickZoom.disable();map.getContainer().style.cursor="crosshair";
     map.on("click",this._click,this);map.on("mousemove",this._move,this);
     document.addEventListener("keydown",this._key);
-    document.getElementById("btnDraw").textContent="✕ Cancelar dibujo";this.barra();},
+    document.getElementById("btnDraw").textContent="✕ Cancelar";this.barra();if(typeof Hoja!=="undefined")Hoja.guardarYCerrar();},
   _click(e){if(Date.now()-this.ultDrag<350)return;this.agregar(e.latlng)},
   _move(e){if(!this.pts.length){this.guia.setLatLngs([]);return}const a=this.pts[this.pts.length-1];this.guia.setLatLngs(this.pts.length>=2&&this.opt.modo!=="linea"?[a,e.latlng,this.pts[0]]:[a,e.latlng]);
     /* Hectáreas en vivo junto al cursor, contando el punto donde está el mouse */
@@ -154,7 +154,7 @@ const Dib={pts:[],mk:[],poly:null,guia:null,ultDrag:0,
   salir(){map.off("click",this._click,this);map.off("mousemove",this._move,this);document.removeEventListener("keydown",this._key);
     this.mk.forEach(m=>map.removeLayer(m));map.removeLayer(this.poly);map.removeLayer(this.guia);this.mk=[];cancelAnimationFrame(this._raf);if(this.lbl){map.removeLayer(this.lbl);this.lbl=null}
     map.doubleClickZoom.enable();map.getContainer().style.cursor="";document.getElementById("dibBarra")?.remove();
-    document.getElementById("btnDraw").textContent="✎ Dibujar lote";setTimeout(()=>{S.drawing=null},50)},
+    document.getElementById("btnDraw").innerHTML='✎<span class="solo-pc">&nbsp;Dibujar lote</span>';setTimeout(()=>{S.drawing=null},50);if(typeof Hoja!=="undefined")Hoja.restaurar()},
   cancelar(){this.pts=[];this.salir()},
   terminar(){const c=this.pts.map(p=>[p.lng,p.lat]);
     if(this.opt.modo==="linea"){if(c.length<2){toast("La línea necesita al menos 2 puntos.");return}const cb=this.opt.onDone;this.salir();cb({type:"LineString",coordinates:c});return}
@@ -321,7 +321,7 @@ function formSiembra(l, sid, def = {}) {
 }
 
 /* ============ Panel lateral ============ */
-function seleccionar(id) { if (S.ambEd && S.ambEd.lote_id !== id) AMB.cerrar(); S.sel = id; limpiarOverlays(); S.ndvi = { items: [], sel: null, series: {} }; restyle(); render(); const y = S.layers.get(id); if (y) map.fitBounds(y.getBounds(), { padding: [40, 40], maxZoom: 16 }); }
+function seleccionar(id) { if (S.ambEd && S.ambEd.lote_id !== id) AMB.cerrar(); S.sel = id; limpiarOverlays(); S.ndvi = { items: [], sel: null, series: {} }; restyle(); if (typeof Hoja !== "undefined") Hoja.alSeleccionar(); render(); const y = S.layers.get(id); if (y) map.fitBounds(y.getBounds(), typeof Hoja !== "undefined" ? Hoja.encuadre({ maxZoom: 16 }) : { padding: [40, 40], maxZoom: 16 }); }
 function render() {
   const p = document.getElementById("panel"); if (!p) return;
   if (S.ambEd && S.ambEd.lote_id !== S.sel) AMB.cerrar();

@@ -154,7 +154,7 @@ svg.ts text{fill:var(--muted);font:10px var(--f-mono)}
 .modal h4{font:800 18px var(--f-disp);margin:0}
 .modal .row > .field.grow{min-width:150px}
 .modal .pie{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;position:sticky;bottom:-18px;background:var(--panel);padding:10px 0 2px;border-top:1px solid var(--line);margin-top:4px}
-.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(24px + var(--bottom));z-index:3500;background:var(--ink);color:var(--panel);padding:9px 14px;border-radius:8px;font-weight:600;font-size:14px;max-width:90vw}
+.toast{pointer-events:none;position:fixed;left:50%;transform:translateX(-50%);bottom:calc(24px + var(--bottom));z-index:3500;background:var(--ink);color:var(--panel);padding:9px 14px;border-radius:8px;font-weight:600;font-size:14px;max-width:90vw}
 .cargando{position:fixed;inset:0;z-index:2500;background:rgba(10,14,11,.45);display:grid;place-items:center}
 .cargando div{background:var(--panel);color:var(--ink);padding:16px 20px;border-radius:10px;font-weight:600;display:flex;gap:10px;align-items:center}
 .spin{width:18px;height:18px;border:3px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:sp 1s linear infinite}
@@ -162,18 +162,73 @@ svg.ts text{fill:var(--muted);font:10px var(--f-mono)}
 
 /* ---------- Navegación en el teléfono ---------- */
 nav.bottom{display:none}
+.agarre{display:none}
 @media (max-width:820px){
   :root{--bottom:calc(60px + env(safe-area-inset-bottom,0px))}
   nav.tabs{display:none}
   header.top .marca small{display:none}
   header.top .solo-pc{display:none}
+  header.top{gap:8px}
+  header.top .marca{font-size:16px;min-width:0;overflow:hidden;text-overflow:ellipsis}
+  header.top .acc{gap:6px;margin-left:auto;flex:none}
+  header.top select{max-width:96px}
+  #modoChip{display:none!important}
+  /* Con letra menor a 16 px el iPhone agranda la pantalla al tocar un campo y queda corrida hacia un costado */
+  select,input,textarea,.chat-in textarea{font-size:16px}
+  button,a,label,select,input{touch-action:manipulation}
+  /* Páginas: filtros en dos columnas, títulos más chicos */
+  .page-head h1{font-size:22px}
+  .filtros{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .filtros .field,.filtros select,.filtros input:not([type=checkbox]){width:100%;min-width:0}
+  .filtros label.row{grid-column:1/-1}
+  .kpi b{font-size:19px}
+  /* Tablas anchas como tarjetas (las marca tablas.js cuando no entran) */
+  table.t.cards,table.t.cards tbody{display:block}
+  table.t.cards tr.cab{display:none}
+  table.t.cards tr{display:grid;grid-template-columns:1fr 1fr;gap:6px 14px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;margin-bottom:8px;background:var(--panel);position:relative}
+  table.t.cards tr.click:active{background:var(--chip)}
+  table.t.cards td{display:block;padding:0;border:0;min-width:0;background:none!important}
+  table.t.cards td[data-l]::before{content:attr(data-l);display:block;font:600 10px var(--f-disp);letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin-bottom:1px}
+  table.t.cards td.ancho{grid-column:1/-1}
+  table.t.cards td.vacio{display:none}
+  table.t.cards td.sel{position:absolute;top:8px;right:10px;width:auto}
+  table.t.cards tr.con-sel{padding-right:56px}
+  table.t.cards .right{text-align:left}
+  table.t.cards tr.total{border-style:dashed}
+  .tablewrap{overflow-x:visible}
+  /* Ventanas como hoja desde abajo */
+  .modal-bg{align-items:flex-end;padding:0}
+  .modal,.modal.medio,.modal.ancho{width:100%;max-height:94vh;border-radius:16px 16px 0 0;border-bottom:0;padding-bottom:calc(14px + env(safe-area-inset-bottom,0px))}
+  .modal .pie{bottom:calc(-14px - env(safe-area-inset-bottom,0px))}
   nav.bottom{display:grid;grid-template-columns:repeat(5,1fr);position:fixed;inset:auto 0 0;height:var(--bottom);padding-bottom:env(safe-area-inset-bottom,0px);background:var(--panel);border-top:1px solid var(--line);z-index:900}
   nav.bottom a{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;color:var(--muted);text-decoration:none;font:600 11px var(--f-body)}
   nav.bottom a .i{font-size:19px;line-height:1}
   nav.bottom a.on{color:var(--accent)}
   nav.bottom a.mas .i{width:42px;height:42px;border-radius:50%;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;font-size:26px;margin-top:-14px;box-shadow:0 2px 8px rgba(0,0,0,.3)}
-  #v-mapa{grid-template-columns:1fr;grid-template-rows:50% 50%}
-  aside.ficha{border-left:0;border-top:1px solid var(--line)}
+  /* Mapa completo y ficha como hoja que se arrastra desde abajo */
+  #v-mapa{display:block;--hoja-vis:66px}
+  #v-mapa .mapwrap{position:absolute;inset:0}
+  aside.ficha{position:absolute;left:0;right:0;bottom:0;height:calc(100% - 10px);border:0;border-radius:16px 16px 0 0;box-shadow:0 -4px 22px rgba(0,0,0,.28);z-index:700;will-change:transform;overflow:hidden}
+  aside.ficha.anim{transition:transform .28s cubic-bezier(.2,.8,.25,1)}
+  .agarre{flex:none;display:flex;flex-direction:column;align-items:stretch;gap:2px;padding:8px 16px 6px;cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;border-bottom:1px solid transparent}
+  .agarre .barrita{align-self:center;width:42px;height:5px;border-radius:3px;background:var(--line);margin-bottom:4px}
+  .agarre-tit{display:flex;flex-direction:column;line-height:1.25;overflow:hidden;max-height:0;opacity:0;transition:max-height .2s,opacity .2s}
+  .agarre-tit b{font:800 16px var(--f-disp);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .agarre-tit span{font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  aside.ficha.h-cerrado .agarre-tit{max-height:48px;opacity:1}
+  aside.ficha.h-cerrado .agarre{border-bottom-color:var(--line)}
+  aside.ficha.h-cerrado #panel{overflow:hidden}
+  #panel{overscroll-behavior:contain}
+  section.blk{padding:12px 14px}
+  /* Lo que flota sobre el mapa queda arriba de la hoja */
+  .ordenes-fab{bottom:calc(var(--hoja-vis) + 12px)!important;transition:bottom .28s}
+  .legend{bottom:calc(var(--hoja-vis) + 12px);left:10px;max-width:min(260px,calc(100vw - 120px));max-height:40vh;overflow:auto}
+  #v-mapa .leaflet-bottom{bottom:var(--hoja-vis)}
+  .coord{display:none}
+  .maptools{top:8px;right:8px;gap:5px}
+  .maptools button{padding:7px 9px;font-size:13px}
+  .maptools select{max-width:118px;font-size:13px}
+  .solo-pc{display:none}
   .visor{grid-template-columns:1fr}
   .it-row{grid-template-columns:1fr 1fr;padding:8px;border:1px solid var(--line);border-radius:6px}
   .it-row .full{grid-column:1/-1}
