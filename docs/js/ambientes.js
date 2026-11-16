@@ -390,9 +390,9 @@ const AMB = {
       <section class="blk"><h2>4 · Prescripción para el 20|20</h2>
         <div class="row"><button class="primary" id="aExp">⬇ Descargar prescripción (.zip)</button><button class="ghost danger" id="aDel" style="margin-left:auto">Eliminar</button></div>
         <details class="small"><summary>Cómo cargarla en el monitor</summary><ol class="amb-pasos">
-          <li>Descomprimí el .zip en la raíz del pendrive: queda la carpeta <b>SendTo2020</b> con el shapefile.</li>
-          <li>En el 20|20: Setup → Data → Import → Prescriptions → <b>Seeding</b>, tocá el archivo e Import. Repetí con <b>Granular</b> para el fertilizante.</li>
-          <li>En Setup → Fields elegí el lote, asigná la prescripción y elegí la columna: <b>SEM_HA</b> para la semilla y <b>FERT_KGHA</b> para el fertilizante (con el monitor en unidades imperiales: SEM_AC y FERT_LBAC).</li>
+          <li>Descomprimí el .zip y copiá los archivos <b>sueltos en la raíz del pendrive</b>, no dentro de una carpeta.</li>
+          <li>En el 20|20: Configuración → Datos → Importar prescripciones → <b>Siembra</b>, tocá el archivo e Importar. Repetí eligiendo <b>Granular</b> para el fertilizante.</li>
+          <li>En Configuración → Campos elegí el lote, asigná la prescripción y elegí la columna: <b>SEM_HA</b> para la semilla y <b>FERT_KGHA</b> para el fertilizante (con el monitor en unidades imperiales: SEM_AC y FERT_LBAC).</li>
           <li>La prescripción se extiende unos 20 m fuera del contorno para cubrir las cabeceras. Revisá en el monitor la dosis que usa fuera de la prescripción.</li></ol></details></section>`;
   },
   bind(l, a) {
@@ -574,16 +574,16 @@ const AMB = {
   /* Pasos para el monitor, iguales en el LEEME de un lote y en el de todos */
   pasos() {
     return ["Cómo cargarla en el 20|20 de tercera generación:",
-      "1. Descomprimir el .zip y copiar la carpeta SendTo2020 a la raíz del pendrive (sin otras carpetas en el medio).",
-      "   Si el monitor no muestra los archivos, copiarlos sueltos a la raíz del pendrive.",
-      "2. Con el monitor encendido, poner el pendrive. Setup > Data > Import > Import Prescriptions (en algunas versiones: Prescription/Boundary).",
-      "3. Tocar Select All (abajo a la derecha) y después Import: entran todas las prescripciones de una vez.",
-      "4. Para cada lote: Setup > Fields > elegir el lote (o crearlo) > Prescriptions.",
-      "   Seeding: elegir el archivo del lote y la columna SEM_HA (semillas/ha).",
+      "1. Descomprimir el .zip y copiar los archivos (.shp, .shx, .dbf, .prj) sueltos en la raíz del pendrive, no dentro de una carpeta.",
+      "2. Con el monitor encendido, poner el pendrive. Configuración (Setup) > Datos (Data) > Importar prescripciones (Import Prescriptions).",
+      "3. Elegir el sistema: Siembra (Seeding). Aparece la lista de archivos del pendrive: tocar todos los que van (o Seleccionar todo) e Importar.",
+      "4. Repetir el paso 2 y 3 eligiendo Granular, para el fertilizante. El monitor importa cada archivo para un sistema por vez.",
+      "5. Para cada lote: Configuración > Campos (Fields) > elegir el lote (o crearlo).",
+      "   Siembra: elegir el archivo del lote y la columna SEM_HA (semillas/ha).",
       "   Granular: el mismo archivo y la columna FERT_KGHA (kg/ha).",
-      "   Con el monitor en unidades imperiales: SEM_AC (semillas/acre) y FERT_LBAC (lb/acre). Guardar.",
-      "5. Antes de sembrar, en la pantalla principal tocar el control de Seeding (y el de Granular) > Control Mode > Prescription.",
-      "6. Revisar la dosis por defecto (Default Rate): es la que usa fuera de la prescripción."];
+      "   Con el monitor en unidades imperiales: SEM_AC y FERT_LBAC. Guardar.",
+      "6. Antes de sembrar, en la pantalla principal tocar el control de Siembra (y el de Granular) > Modo de control > Prescripción.",
+      "7. Revisar la dosis por defecto: es la que usa fuera de la prescripción."];
   },
   /* Todas las ambientaciones guardadas de la campaña, en un solo .zip */
   async todas(campana) {
@@ -605,7 +605,7 @@ const AMB = {
     if (!rx.length) { toast(`Todavía no hay prescripciones guardadas en ${S.campana}. Se arman desde la ficha de cada lote, en Ambientación y prescripción.`, 7000); return; }
     const sel = new Set(rx.filter((r) => !r.faltan.length).map((r) => r.a.id));
     modal(`<h4>Prescripciones de siembra ${esc(S.campana)}</h4>
-      <div class="small muted">Elegí las que van al monitor. Se descargan juntas en un .zip listo para el pendrive.</div>
+      <div class="small muted">Elegí las que van al monitor. Se descargan juntas en un .zip: los archivos van sueltos en la raíz del pendrive.</div>
       <div class="tablewrap"><table class="t"><tr><th></th><th>Lote</th><th class="right">ha</th><th class="right">Bolsas</th><th class="right">Fert. kg</th></tr>
         ${rx.map((r) => `<tr><td><input type="checkbox" data-rx="${r.a.id}" ${sel.has(r.a.id) ? "checked" : ""} ${r.faltan.length ? "disabled" : ""} aria-label="Incluir ${esc(r.l.nombre)}"></td><td><b>${esc(r.l.nombre)}</b><div class="small muted">${esc(r.a.nombre)} · ${r.a.n} ambientes${r.a.franjas.length ? ` · ${r.a.franjas.length} franjas` : ""}</div>${r.faltan.length ? `<span class="pill bad">falta la semilla en ${esc(r.faltan.join(", "))}</span>` : ""}</td><td class="num right">${fmt(r.ha, 1)}</td><td class="num right">${fmt(r.t.bolsas, 1)}</td><td class="num right">${fmt(r.t.fert, 0)}</td></tr>`).join("")}</table></div>
       <div id="rxTot" class="amb-tot"></div>
@@ -621,7 +621,7 @@ const AMB = {
         const modo = m.querySelector("[name=rxModo]:checked").value; const elegidas = rx.filter((x) => sel.has(x.a.id)); close();
         const fin2 = cargando(`Armando ${elegidas.length} prescripciones…`);
         try {
-          const zip = new JSZip(); const dir = zip.folder("SendTo2020"); const usados = new Set(); const lineas = []; const malos = [];
+          const zip = new JSZip(); const dir = zip; /* el 20|20 Gen 3 lee los archivos sueltos en la raíz del pendrive */ const usados = new Set(); const lineas = []; const malos = [];
           const nombre = (l, a) => { let n = AMB.nombreArchivo(l, a), k = 2; while (usados.has(n.toLowerCase())) n = AMB.nombreArchivo(l, a).slice(0, 36) + "_" + k++; usados.add(n.toLowerCase()); return n; };
           const poner = (nom, f) => { dir.file(nom + ".shp", f.shp); dir.file(nom + ".shx", f.shx); dir.file(nom + ".dbf", f.dbf); dir.file(nom + ".prj", f.prj); };
           let todos = [], campos = null;
@@ -662,7 +662,7 @@ const AMB = {
     try {
       const { feats, campos } = AMB.armar(l, a); if (!feats.length) throw new Error("no quedó ningún polígono");
       const f = AMB.shapefile(feats, campos); const nom = AMB.nombreArchivo(l, a);
-      const zip = new JSZip(); const dir = zip.folder("SendTo2020");
+      const zip = new JSZip(); const dir = zip; /* el 20|20 Gen 3 lee los archivos sueltos en la raíz del pendrive */
       dir.file(nom + ".shp", f.shp); dir.file(nom + ".shx", f.shx); dir.file(nom + ".dbf", f.dbf); dir.file(nom + ".prj", f.prj);
       const t = AMB.totales(a, AMB.stats(a));
       zip.file("LEEME.txt", [`Prescripción ${a.nombre} · ${l.nombre} · Flores Chicas`, `Generada el ${fechaAR(hoy())}`, "",
