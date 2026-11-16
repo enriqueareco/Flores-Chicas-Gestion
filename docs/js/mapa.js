@@ -345,12 +345,14 @@ function htmlResumen() {
     ${pend ? `<button class="ghost" data-ir="ordenes" style="margin-left:auto"><span class="pill warn">${pend} orden${pend > 1 ? "es" : ""} abierta${pend > 1 ? "s" : ""}</span></button>` : ""}</div>
     <div class="col" style="gap:6px">${orden.map(([k, v]) => `<div class="bar"><span>${esc(k)}</span><div class="track"><div class="fill" style="width:${(v / maxC) * 100}%;background:${k === "Sin asignar" ? SIN : colorCult(k)}"></div></div><span class="num right">${fmt(v, 0)} ha</span></div>`).join("")}</div>
     ${doble ? '<div class="small muted">Los lotes con más de un cultivo en la campaña suman sus hectáreas en cada cultivo.</div>' : ""}</section>
+    <section class="blk"><div class="row" style="justify-content:space-between;align-items:center"><div><h2>Prescripciones de siembra</h2><div class="small muted">Todas las ambientaciones de ${esc(S.campana)} juntas, para cargarlas de una vez en el monitor.</div></div><button id="bRxTodas">⬇ Descargar todas</button></div></section>
     <section class="blk"><div class="row" style="justify-content:space-between"><h2>Lotes</h2><input id="q" placeholder="Buscar…" style="width:150px"></div>
     <div id="lista">${Object.entries(grupos).sort().map(([g, ls]) => `<div class="grp">${esc(g)} · ${fmt(ls.reduce((a, l) => a + haDe(l.geom), 0), 0)} ha</div>` + ls.sort((a, b) => a.nombre.localeCompare(b.nombre, "es", { numeric: true })).map((l) => { const t = textoCultivos(l); return `<div class="lote-item" data-id="${l.id}" data-n="${esc(l.nombre.toLowerCase())}" tabindex="0"><span class="sw" style="background:${colorDe(l)}"></span><span><b>${esc(l.nombre)}</b>${l.subs.length ? ` <span class="small muted">· ${l.subs.length} sectores</span>` : ""}<br><span class="small muted">${t ? esc(t) : "Sin cultivo cargado"}</span></span><span class="num small">${fmt(haDe(l.geom))} ha</span></div>`; }).join("")).join("")}</div></section>`;
 }
 function bindResumen() {
   document.querySelectorAll(".lote-item").forEach((el) => { el.onclick = () => seleccionar(el.dataset.id); el.onkeydown = (e) => { if (e.key === "Enter") seleccionar(el.dataset.id); }; });
   document.querySelectorAll("#panel [data-ir]").forEach((b) => (b.onclick = () => irA(b.dataset.ir)));
+  const rx = document.getElementById("bRxTodas"); if (rx) rx.onclick = () => AMB.descargarTodas();
   const q = document.getElementById("q"); if (q) q.oninput = () => { const v = q.value.toLowerCase(); document.querySelectorAll(".lote-item").forEach((el) => (el.hidden = !el.dataset.n.includes(v))); };
 }
 function htmlLote(l) {

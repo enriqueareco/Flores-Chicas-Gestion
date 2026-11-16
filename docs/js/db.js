@@ -148,6 +148,12 @@ const DB = {
     const { data } = await this._r(() => this.sb.storage.from(bucket).createSignedUrl(path, 3600));
     return data?.signedUrl || null;
   },
+  async listarArchivos(bucket, carpeta) {
+    if (this.modo === "local") { const ks = await Local.req(Local.st("archivos", "readonly").getAllKeys()); const pre = `${bucket}/${carpeta}/`; return ks.map(String).filter((k) => k.startsWith(pre)).map((k) => k.slice(pre.length)); }
+    const { data, error } = await this._r(() => this.sb.storage.from(bucket).list(carpeta, { limit: 1000 }));
+    if (error) throw new Error("No se pudo leer la carpeta: " + error.message);
+    return (data || []).map((f) => f.name);
+  },
   async borrarArchivo(bucket, path) {
     if (this.modo === "local") return Local.req(Local.st("archivos", "readwrite").delete(bucket + "/" + path));
     await this._r(() => this.sb.storage.from(bucket).remove([path]));

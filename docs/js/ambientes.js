@@ -563,13 +563,94 @@ const AMB = {
     /* Las franjas pisan los ambientes */
     const fr = a.franjas.map((f, i) => { let g = f.geom; for (const o of a.franjas.slice(i + 1)) { try { const r = geoOp("difference", feat(g), feat(o.geom)); g = r ? r.geometry : null; } catch (e) {} if (!g) break; } return { ...f, geomFinal: g }; }).filter((f) => f.geomFinal);
     zonas = zonas.map((z) => { let g = feat(z.geom); for (const f of a.franjas) { if (!g) break; try { g = geoOp("difference", g, feat(f.geom)); } catch (e) { console.warn("diferencia", e); } } return g ? { ...z, geom: g.geometry } : null; }).filter(Boolean);
-    const props = (tipo, nombre, sem, fert, geom) => ({ TIPO: tipo, NOMBRE: nombre, SEM_HA: sem || 0, SEM_AC: Math.round((sem || 0) * 0.404686), FERT_KGHA: fert || 0, FERT_LBAC: +((fert || 0) * 0.892179).toFixed(1), HA: +haDe(geom).toFixed(2) });
+    const props = (tipo, nombre, sem, fert, geom) => ({ LOTE: l.nombre, TIPO: tipo, NOMBRE: nombre, SEM_HA: sem || 0, SEM_AC: Math.round((sem || 0) * 0.404686), FERT_KGHA: fert || 0, FERT_LBAC: +((fert || 0) * 0.892179).toFixed(1), HA: +haDe(geom).toFixed(2) });
     const feats = [
       ...zonas.map((z) => ({ geom: z.geom, props: props("Ambiente", `A${z.clase + 1} ${nom[z.clase]}`, d[z.clase].sem, d[z.clase].fert, z.geom) })),
       ...fr.map((f) => ({ geom: f.geomFinal, props: props("Franja", f.nombre, f.sem, f.fert, f.geomFinal) })),
     ];
-    const campos = [{ nombre: "TIPO", tipo: "C", len: 10 }, { nombre: "NOMBRE", tipo: "C", len: 16 }, { nombre: "SEM_HA", tipo: "N", len: 10, dec: 0 }, { nombre: "SEM_AC", tipo: "N", len: 10, dec: 0 }, { nombre: "FERT_KGHA", tipo: "N", len: 8, dec: 1 }, { nombre: "FERT_LBAC", tipo: "N", len: 8, dec: 1 }, { nombre: "HA", tipo: "N", len: 10, dec: 2 }];
+    const campos = [{ nombre: "LOTE", tipo: "C", len: 30 }, { nombre: "TIPO", tipo: "C", len: 10 }, { nombre: "NOMBRE", tipo: "C", len: 16 }, { nombre: "SEM_HA", tipo: "N", len: 10, dec: 0 }, { nombre: "SEM_AC", tipo: "N", len: 10, dec: 0 }, { nombre: "FERT_KGHA", tipo: "N", len: 8, dec: 1 }, { nombre: "FERT_LBAC", tipo: "N", len: 8, dec: 1 }, { nombre: "HA", tipo: "N", len: 10, dec: 2 }];
     return { feats, campos };
+  },
+  /* Pasos para el monitor, iguales en el LEEME de un lote y en el de todos */
+  pasos() {
+    return ["Cómo cargarla en el 20|20 de tercera generación:",
+      "1. Descomprimir el .zip y copiar la carpeta SendTo2020 a la raíz del pendrive (sin otras carpetas en el medio).",
+      "   Si el monitor no muestra los archivos, copiarlos sueltos a la raíz del pendrive.",
+      "2. Con el monitor encendido, poner el pendrive. Setup > Data > Import > Import Prescriptions (en algunas versiones: Prescription/Boundary).",
+      "3. Tocar Select All (abajo a la derecha) y después Import: entran todas las prescripciones de una vez.",
+      "4. Para cada lote: Setup > Fields > elegir el lote (o crearlo) > Prescriptions.",
+      "   Seeding: elegir el archivo del lote y la columna SEM_HA (semillas/ha).",
+      "   Granular: el mismo archivo y la columna FERT_KGHA (kg/ha).",
+      "   Con el monitor en unidades imperiales: SEM_AC (semillas/acre) y FERT_LBAC (lb/acre). Guardar.",
+      "5. Antes de sembrar, en la pantalla principal tocar el control de Seeding (y el de Granular) > Control Mode > Prescription.",
+      "6. Revisar la dosis por defecto (Default Rate): es la que usa fuera de la prescripción."];
+  },
+  /* Todas las ambientaciones guardadas de la campaña, en un solo .zip */
+  async todas(campana) {
+    const archivos = await DB.listarArchivos("rindes", "ambientes"); const out = [];
+    for (const f of archivos) {
+      const l = loteDe(f.replace(/\.json$/, "")); if (!l) continue;
+      for (const x of await AMB.lista(l)) {
+        if (campana && x.campana !== campana) continue;
+        const a = JSON.parse(JSON.stringify(x)); a._idx = AMB.dec(a.indice, a.grid.W * a.grid.H); AMB.clasificar(a);
+        const d = AMB.dosis(a); const faltan = [...d.map((y, k) => (y.sem ? null : `A${k + 1}`)), ...a.franjas.map((fr) => (fr.sem ? null : fr.nombre))].filter(Boolean);
+        out.push({ l, a, t: AMB.totales(a, AMB.stats(a)), ha: AMB.stats(a).reduce((s, z) => s + z.ha, 0), faltan });
+      }
+    }
+    return out.sort((x, y) => x.l.nombre.localeCompare(y.l.nombre, "es", { numeric: true }));
+  },
+  async descargarTodas() {
+    const fin = cargando("Buscando las prescripciones…"); let rx;
+    try { rx = await AMB.todas(S.campana); } catch (e) { toast("No pude leer las prescripciones: " + e.message, 6000); return; } finally { fin(); }
+    if (!rx.length) { toast(`Todavía no hay prescripciones guardadas en ${S.campana}. Se arman desde la ficha de cada lote, en Ambientación y prescripción.`, 7000); return; }
+    const sel = new Set(rx.filter((r) => !r.faltan.length).map((r) => r.a.id));
+    modal(`<h4>Prescripciones de siembra ${esc(S.campana)}</h4>
+      <div class="small muted">Elegí las que van al monitor. Se descargan juntas en un .zip listo para el pendrive.</div>
+      <div class="tablewrap"><table class="t"><tr><th></th><th>Lote</th><th class="right">ha</th><th class="right">Bolsas</th><th class="right">Fert. kg</th></tr>
+        ${rx.map((r) => `<tr><td><input type="checkbox" data-rx="${r.a.id}" ${sel.has(r.a.id) ? "checked" : ""} ${r.faltan.length ? "disabled" : ""} aria-label="Incluir ${esc(r.l.nombre)}"></td><td><b>${esc(r.l.nombre)}</b><div class="small muted">${esc(r.a.nombre)} · ${r.a.n} ambientes${r.a.franjas.length ? ` · ${r.a.franjas.length} franjas` : ""}</div>${r.faltan.length ? `<span class="pill bad">falta la semilla en ${esc(r.faltan.join(", "))}</span>` : ""}</td><td class="num right">${fmt(r.ha, 1)}</td><td class="num right">${fmt(r.t.bolsas, 1)}</td><td class="num right">${fmt(r.t.fert, 0)}</td></tr>`).join("")}</table></div>
+      <div id="rxTot" class="amb-tot"></div>
+      <div class="field"><span class="lbl">Cómo armar los archivos</span>
+        <label class="row small"><input type="radio" name="rxModo" value="lotes" checked> <span><b>Un archivo por lote</b> (recomendado): en el monitor, a cada lote le asignás su archivo.</span></label>
+        <label class="row small"><input type="radio" name="rxModo" value="uno"> <span><b>Un solo archivo con todos los lotes</b>: el mismo archivo sirve para cualquier lote, porque la dosis sale de la posición.</span></label></div>
+      <details class="small"><summary>Pasos en el monitor</summary><div style="white-space:pre-line;margin-top:6px">${esc(AMB.pasos().join("\n"))}</div></details>
+      <div class="pie"><button id="mNo">Cancelar</button><button class="primary" id="rxDesc">⬇ Descargar (.zip)</button></div>`, (m, close) => {
+      const tot = () => { const r = rx.filter((x) => sel.has(x.a.id)); m.querySelector("#rxTot").innerHTML = `<div><span>Lotes</span><b class="num">${r.length} · ${fmt(r.reduce((s, x) => s + x.ha, 0), 1)} ha</b></div><div><span>Semilla · fertilizante</span><b class="num">${fmt(r.reduce((s, x) => s + x.t.bolsas, 0), 1)} bolsas</b><span class="small muted">${fmt(r.reduce((s, x) => s + x.t.fert, 0), 0)} kg de fertilizante</span></div>`; m.querySelector("#rxDesc").disabled = !r.length; };
+      m.querySelectorAll("[data-rx]").forEach((ck) => (ck.onchange = () => { ck.checked ? sel.add(ck.dataset.rx) : sel.delete(ck.dataset.rx); tot(); }));
+      tot(); m.querySelector("#mNo").onclick = close;
+      m.querySelector("#rxDesc").onclick = async () => {
+        const modo = m.querySelector("[name=rxModo]:checked").value; const elegidas = rx.filter((x) => sel.has(x.a.id)); close();
+        const fin2 = cargando(`Armando ${elegidas.length} prescripciones…`);
+        try {
+          const zip = new JSZip(); const dir = zip.folder("SendTo2020"); const usados = new Set(); const lineas = []; const malos = [];
+          const nombre = (l, a) => { let n = AMB.nombreArchivo(l, a), k = 2; while (usados.has(n.toLowerCase())) n = AMB.nombreArchivo(l, a).slice(0, 36) + "_" + k++; usados.add(n.toLowerCase()); return n; };
+          const poner = (nom, f) => { dir.file(nom + ".shp", f.shp); dir.file(nom + ".shx", f.shx); dir.file(nom + ".dbf", f.dbf); dir.file(nom + ".prj", f.prj); };
+          let todos = [], campos = null;
+          for (const r of elegidas) {
+            try {
+              const { feats, campos: c } = AMB.armar(r.l, r.a); if (!feats.length) throw new Error("sin polígonos"); campos = c;
+              const d = AMB.dosis(r.a); const dz = d.map((y, k) => `A${k + 1} ${y.sem}/${y.fert || 0}`).join(" · ");
+              if (modo === "lotes") { const nom = nombre(r.l, r.a); poner(nom, AMB.shapefile(feats, c)); lineas.push(`${r.l.nombre}: archivo ${nom} · ${fmt(r.ha, 1)} ha · semillas/kg por ambiente: ${dz}`); }
+              else {
+                /* En el archivo único, el borde de 20 m de un lote no puede pisar al lote vecino */
+                const bb = bboxDe(r.l.geom); const vecinos = elegidas.filter((o) => o !== r && (() => { const c = bboxDe(o.l.geom); return c[0] < bb[2] + 0.001 && c[2] > bb[0] - 0.001 && c[1] < bb[3] + 0.001 && c[3] > bb[1] - 0.001; })());
+                const limpios = feats.map((f) => { let g = feat(f.geom); for (const o of vecinos) { if (!g) break; try { g = geoOp("difference", g, feat(o.l.geom)); } catch (e) {} } return g ? { ...f, geom: g.geometry } : null; }).filter(Boolean);
+                todos = todos.concat(limpios); lineas.push(`${r.l.nombre}: ${fmt(r.ha, 1)} ha · semillas/kg por ambiente: ${dz}`); }
+            } catch (e) { console.error(e); malos.push(r.l.nombre); }
+          }
+          let nomUnico = null;
+          if (modo === "uno" && todos.length) { nomUnico = `Rx_Maiz_${S.campana}_todos`.normalize("NFD").replace(/[^\w]+/g, "_").slice(0, 40); poner(nomUnico, AMB.shapefile(todos, campos)); }
+          const ok = elegidas.filter((r) => !malos.includes(r.l.nombre));
+          zip.file("LEEME.txt", [`Prescripciones de siembra ${S.campana} · Flores Chicas`, `Generadas el ${fechaAR(hoy())} · ${ok.length} lotes · ${fmt(ok.reduce((s, x) => s + x.ha, 0), 1)} ha`, "",
+            ...AMB.pasos(), ...(nomUnico ? ["", `Archivo único: ${nomUnico}. En el paso 4 se asigna este mismo archivo a cada lote.`] : []), "",
+            "Lotes:", ...lineas.map((x) => "  " + x), "",
+            `Total aproximado: ${fmt(ok.reduce((s, x) => s + x.t.bolsas, 0), 1)} bolsas de 80.000 semillas · ${fmt(ok.reduce((s, x) => s + x.t.fert, 0), 0)} kg de fertilizante`,
+            ...(malos.length ? ["", "No se pudieron armar: " + malos.join(", ")] : [])].join("\r\n"));
+          const nz = `Prescripciones_${S.campana}`.replace(/[^\w]+/g, "_") + ".zip";
+          descargar(nz, await zip.generateAsync({ type: "blob" }), "application/zip");
+          toast(`Listo: ${nz} con ${ok.length} lotes${malos.length ? `. No se pudieron armar: ${malos.join(", ")}` : ""}.`, 8000);
+        } catch (e) { console.error(e); toast("No pude armar las prescripciones: " + e.message, 7000); } finally { fin2(); }
+      };
+    }, "medio");
   },
   async exportar(l, a) {
     const d = AMB.dosis(a); const sinSem = d.map((x, k) => (x.sem ? null : `A${k + 1}`)).filter(Boolean);
@@ -585,10 +666,7 @@ const AMB = {
       dir.file(nom + ".shp", f.shp); dir.file(nom + ".shx", f.shx); dir.file(nom + ".dbf", f.dbf); dir.file(nom + ".prj", f.prj);
       const t = AMB.totales(a, AMB.stats(a));
       zip.file("LEEME.txt", [`Prescripción ${a.nombre} · ${l.nombre} · Flores Chicas`, `Generada el ${fechaAR(hoy())}`, "",
-        "1. Copiar la carpeta SendTo2020 a la raíz del pendrive (sin otras carpetas en el medio).",
-        "2. En el 20|20: Setup > Data > Import > Prescriptions > Seeding, elegir el archivo e Import. Repetir con Granular para el fertilizante.",
-        "3. En Setup > Fields elegir el lote, asignar la prescripción y la columna: SEM_HA (semillas/ha) y FERT_KGHA (kg/ha).",
-        "   Con el monitor en unidades imperiales: SEM_AC (semillas/acre) y FERT_LBAC (lb/acre).", "",
+        ...AMB.pasos(), "",
         "Dosis:", ...d.map((x, k) => `  A${k + 1} ${AMB.NOMBRES[+a.n][k]}: ${x.sem} semillas/ha · ${x.fert || 0} kg/ha`),
         ...a.franjas.map((f) => `  Franja ${f.nombre}: ${f.sem} semillas/ha · ${f.fert || 0} kg/ha · ${haDe(f.geom).toFixed(2)} ha`), "",
         `Total aproximado: ${Math.round(t.sem).toLocaleString("es-AR")} semillas (${t.bolsas.toFixed(1)} bolsas de 80.000) · ${Math.round(t.fert).toLocaleString("es-AR")} kg de fertilizante`].join("\r\n"));
