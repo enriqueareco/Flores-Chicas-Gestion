@@ -267,7 +267,7 @@ Vistas.comprobantes = function () {
   let totUSD = 0, sinTC = 0;
   for (const c of S.d.comprobantes) if (c.estado === "confirmado" && c.campana === S.campana && c.tipo !== "remito" && c.tipo !== "ajuste") { const neto = (c.items || []).reduce((a, it) => a + (it.subtotal || 0), 0) * (c.tipo === "nota_credito" ? -1 : 1); const u = aUSD(neto, c.moneda, c.tipo_cambio); if (u == null) { if (neto) sinTC++; } else totUSD += u; }
   el.innerHTML = `<div class="page-in">
-    <div class="page-head"><h1>Comprobantes</h1><div class="row"><button class="primary" id="bFoto">📷 Sacar foto</button><button id="bPdf">Subir PDF o imagen</button><button id="bMan">Cargar a mano</button></div></div>
+    <div class="page-head"><h1>Comprobantes</h1><div class="row"><button class="primary" id="bFoto">📷 Sacar foto</button><button id="bPdf">Subir PDF o imagen</button><button id="bMan">Cargar a mano</button><button id="bCtl">⚖ Remitos contra facturas</button></div></div>
     <div class="kpis"><div class="kpi ${pend ? "alerta" : ""}"><span>Para revisar</span><b>${pend}</b></div><div class="kpi"><span>Compras netas ${esc(S.campana)}</span><b>${fmtM(totUSD, "USD")}</b>${sinTC ? `<div class="small muted">${sinTC} en pesos sin tipo de cambio</div>` : ""}</div></div>
     <div class="filtros"><div class="field"><label class="lbl" for="fE">Estado</label><select id="fE"><option value="">Todos</option>${opciones([["borrador", "Para revisar"], ["confirmado", "Confirmados"]], f.estado)}</select></div>
       <div class="field"><label class="lbl" for="fTi">Tipo</label><select id="fTi"><option value="">Todos</option>${opciones(TIPOS_COMP, f.tipo)}</select></div>
@@ -280,6 +280,7 @@ Vistas.comprobantes = function () {
   const $ = (q) => el.querySelector(q);
   $("#bFoto").onclick = () => { Comprobantes.tipoFoto = null; document.getElementById("fFoto").click(); };
   $("#bPdf").onclick = () => document.getElementById("fDoc").click();
+  $("#bCtl").onclick = () => Control.abrir();
   $("#bMan").onclick = async () => { const c = await guardar("comprobantes", { id: uid(), tipo: "factura", estado: "borrador", origen: "manual", items: [], archivos: [], mueve_stock: true, moneda: "ARS", fecha: hoy() }); Comprobantes.revisar(c); };
   $("#fE").onchange = (e) => { f.estado = e.target.value; Vistas.comprobantes(); };
   $("#fTi").onchange = (e) => { f.tipo = e.target.value; Vistas.comprobantes(); };

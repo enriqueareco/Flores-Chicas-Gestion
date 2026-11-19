@@ -54,7 +54,7 @@ Vistas.proveedores = function () {
   const totPend = [...ctls.values()].reduce((a, c) => a + c.remitosPend.length, 0), totDif = [...ctls.values()].reduce((a, c) => a + c.facturasDif.length, 0);
   const haLab = (id) => { const p = proveedorDe(id); return S.d.labores.filter((l) => (l.contratista_id === id || (!l.contratista_id && l.contratista && claveEmpresa(l.contratista) === claveEmpresa(p.nombre))) && (!camp || l.campana === camp)).reduce((a, l) => a + (Number(l.superficie_ha) || 0), 0); };
   el.innerHTML = `<div class="page-in">
-    <div class="page-head"><h1>Proveedores</h1><button class="primary" id="bNV">+ Proveedor o contratista</button></div>
+    <div class="page-head"><h1>Proveedores</h1><div class="row"><button id="bCtl">⚖ Remitos contra facturas</button><button class="primary" id="bNV">+ Proveedor o contratista</button></div></div>
     ${!S.esquemaOk ? avisoEsquema() : ""}
     <div class="small muted" style="max-width:72ch">Al subir un remito o una factura, el proveedor se reconoce por CUIT o por nombre. Si figura con otro nombre, la app te pregunta cuál es y lo recuerda. Al confirmar una factura, tildás los remitos que incluye y se compara lo recibido con lo facturado.</div>
     <div class="kpis"><div class="kpi"><span>Proveedores</span><b>${S.d.proveedores.length}</b></div><div class="kpi ${totPend ? "alerta" : ""}"><span>Remitos sin facturar</span><b>${totPend}</b></div><div class="kpi ${totDif ? "alerta" : ""}"><span>Facturas con diferencias</span><b>${totDif}</b></div></div>
@@ -67,6 +67,7 @@ Vistas.proveedores = function () {
   </div>`;
   const $ = (q) => el.querySelector(q);
   $("#bNV").onclick = () => Insumos.formProveedor(null);
+  $("#bCtl").onclick = () => Control.abrir();
   $("#pvT").onchange = (e) => { f.tipo = e.target.value; Vistas.proveedores(); };
   $("#pvC").onchange = (e) => { f.todas = e.target.checked; Vistas.proveedores(); };
   $("#pvQ").oninput = (e) => { f.q = e.target.value; clearTimeout(S._tpv); S._tpv = setTimeout(() => { Vistas.proveedores(); const i = document.getElementById("pvQ"); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }, 300); };

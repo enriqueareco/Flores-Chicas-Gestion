@@ -326,3 +326,4 @@ span.spin{display:inline-block;width:12px;height:12px;border-width:2px;vertical-
 .chat-vacio .sug{text-align:left;white-space:normal;justify-content:flex-start;font-weight:500;line-height:1.35;padding:8px 10px}
 #chMic.on{background:var(--danger);border-color:var(--danger);color:#fff}
 @media (max-width:820px){.chat{top:0;width:100vw;z-index:1900;border-left:0}}
+.ctl-prov{border-top:1px solid var(--line);padding-top:12px;display:flex;flex-direction:column;gap:8px}
