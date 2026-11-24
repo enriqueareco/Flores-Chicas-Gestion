@@ -585,6 +585,24 @@ const AMB = {
       "6. Antes de sembrar, en la pantalla principal tocar el control de Siembra (y el de Granular) > Modo de control > Prescripción.",
       "7. Revisar la dosis por defecto: es la que usa fuera de la prescripción."];
   },
+  /* Semilla y fertilizante que pide la prescripción dentro de lo sembrado (todo el lote o sus sectores).
+     Cuenta celda por celda, con las franjas de ensayo encima de los ambientes. */
+  async enSiembra(l, campana, subIdsTxt) {
+    const lista = (await AMB.lista(l)).filter((x) => x.campana === campana);
+    if (!lista.length) return null;
+    const x = lista.sort((p, q) => (q.actualizado || "").localeCompare(p.actualizado || ""))[0];
+    const a = JSON.parse(JSON.stringify(x)); a._idx = AMB.dec(a.indice, a.grid.W * a.grid.H); AMB.clasificar(a);
+    const d = AMB.dosis(a); const g = a.grid; const ch = AMB.celdaHa(g); const subs = subsDe(l, subIdsTxt);
+    let ha = 0, sem = 0, fert = 0, sinSem = 0;
+    for (let j = 0; j < g.H; j++) for (let i = 0; i < g.W; i++) {
+      const c = a._cls[j * g.W + i]; if (c === 255) continue;
+      const lon = g.bb[0] + (i + 0.5) * g.dLon, lat = g.bb[3] - (j + 0.5) * g.dLat;
+      if (subs.length && !subs.some((s) => dentro(lon, lat, s.geom))) continue;
+      const fr = a.franjas.find((f) => dentro(lon, lat, f.geom)); const ds = fr ? { sem: fr.sem, fert: fr.fert } : d[c];
+      ha += ch; if (ds.sem) sem += ch * ds.sem; else sinSem += ch; fert += ch * (ds.fert || 0);
+    }
+    return { amb: a, ha, sem, fert, bolsas: sem / AMB.BOLSA, semHa: ha ? sem / ha : 0, fertHa: ha ? fert / ha : 0, sinSem, fert_id: a.fert_id || null };
+  },
   /* Todas las ambientaciones guardadas de la campaña, en un solo .zip */
   async todas(campana) {
     const archivos = await DB.listarArchivos("rindes", "ambientes"); const out = [];
