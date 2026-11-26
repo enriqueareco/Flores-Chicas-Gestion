@@ -362,6 +362,8 @@ function htmlLote(l) {
   const sb = [...heredados, ...S.d.siembras.filter((x) => x.lote_id === l.id).sort((a, b) => b.campana.localeCompare(a.campana) || ordenSiembras(a, b))];
   const rs = S.d.rindes.filter((r) => r.lote_id === l.id).sort((a, b) => (b.campana || "").localeCompare(a.campana || ""));
   const labs = S.d.labores.filter((x) => x.lote_id === l.id && x.campana === S.campana).sort((a, b) => (b.fecha || "").localeCompare(a.fecha || ""));
+  /* Labores del lote del último año que quedaron en otra campaña: se avisa, para que no parezca que faltan */
+  const labsOtras = S.d.labores.filter((x) => x.lote_id === l.id && x.campana !== S.campana && x.fecha && (Date.now() - new Date(x.fecha)) / 864e5 < 365);
   const ords = S.d.ordenes.filter((o) => o.lote_id === l.id && (o.estado === "pendiente" || o.estado === "en_curso"));
   const precios = preciosProductos(); let cIns = 0, cLab = { USD: 0, ARS: 0 }, aDef = 0, sinP = 0;
   for (const x of labs) { const c = costoLabor(x, precios); cIns += c.insumosUSD; sinP += c.insumosSinPrecio; if (c.labor != null) cLab[c.moneda] += c.labor; else if (!conPrecio(x)) aDef++; }
@@ -374,6 +376,7 @@ function htmlLote(l) {
     <div class="row"><button id="bEdit">Renombrar</button><button id="bGeo">Editar contorno</button><button class="danger" id="bDel">Eliminar</button></div>
   </section>
   <section class="blk"><div class="row" style="justify-content:space-between"><h2>Labores ${esc(S.campana)}</h2><span class="row"><button id="bLab" class="primary">+ Labor</button><button id="bOrd">+ Orden</button></span></div>
+    ${labsOtras.length ? `<div class="small muted">Hay ${labsOtras.length} labor${labsOtras.length > 1 ? "es" : ""} de este lote del último año en otra campaña (${[...new Set(labsOtras.map((x) => x.campana))].map(esc).join(", ")}): ${labsOtras.slice(0, 3).map((x) => `<button type="button" class="ghost small" style="padding:0 4px" data-lab="${x.id}">${fechaAR(x.fecha)} ${esc(nombreLabor(x))}</button>`).join(" · ")}${labsOtras.length > 3 ? "…" : ""}. Para verlas acá, abrí cada una y cambiale la campaña.</div>` : ""}
     ${ords.length ? ords.map((o) => `<div class="row small"><span class="pill warn">Orden N° ${o.numero}</span> ${esc(nombreLabor(o))} · prevista ${fechaAR(o.fecha_prevista)} <button class="ghost small" data-ord="${o.id}">Ver</button></div>`).join("") : ""}
     ${labs.length ? `<div class="tablewrap"><table class="t"><tr><th>Fecha</th><th>Labor</th><th>Insumos</th><th class="right">Costo</th></tr>${labs.map((x) => { const c = costoLabor(x, precios); return `<tr class="click" data-lab="${x.id}"><td class="num">${fechaAR(x.fecha)}</td><td>${esc(nombreLabor(x))}${x.sub_id ? `<div class="small muted">${esc(subNom(l, x.sub_id))}</div>` : ""}${x.contratista ? `<div class="small muted">${esc(x.contratista)}</div>` : ""}</td><td class="small">${(x.insumos || []).map((i) => `${esc(i.nombre)} ${fmt(i.dosis, 2)} ${esc(i.unidad)}`).join("<br>") || "—"}</td><td class="right small">${c.labor != null ? fmtM(c.labor, c.moneda) : '<span class="pill warn">a definir</span>'}</td></tr>`; }).join("")}</table></div>` : `<div class="empty">Sin labores cargadas en ${esc(S.campana)}.</div>`}
     ${labs.length ? (() => {
